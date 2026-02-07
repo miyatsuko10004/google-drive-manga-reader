@@ -57,16 +57,17 @@ final class DownloaderViewModel {
     
     // MARK: - Initialization
     
-    init(driveService: DriveService = DriveService()) {
-        self.driveService = driveService
+    init(driveService: DriveService? = nil) {
+        self.driveService = driveService ?? DriveService()
     }
     
     // MARK: - Public Methods
     
     /// DriveServiceに認証情報を設定
-    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?) async {
+    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?, accessToken: String?) {
         guard let authorizer = authorizer else { return }
-        await driveService.configure(with: authorizer)
+        driveService.configure(with: authorizer)
+        driveService.setAccessToken(accessToken)
     }
     
     /// ファイルをダウンロード・解凍してLocalComicを作成
@@ -76,7 +77,7 @@ final class DownloaderViewModel {
         
         do {
             // 既にダウンロード済みかチェック
-            if let existingComic = try await storageService.findComic(byDriveFileId: item.id) {
+            if let existingComic = try storageService.findComic(byDriveFileId: item.id) {
                 if existingComic.status == .completed {
                     return existingComic
                 }
@@ -92,7 +93,7 @@ final class DownloaderViewModel {
             
             // 2. 解凍先ディレクトリを作成
             status = .extracting
-            let comicDirectory = try await storageService.createComicDirectory(name: item.name)
+            let comicDirectory = try storageService.createComicDirectory(name: item.name)
             
             // 3. 解凍
             let imageFiles = try await archiveService.extract(
@@ -105,7 +106,7 @@ final class DownloaderViewModel {
             }
             
             // 4. 一時ファイル削除
-            await storageService.deleteTempFile(at: tempFileURL)
+            storageService.deleteTempFile(at: tempFileURL)
             
             // 5. LocalComic作成・保存
             let localPath = comicDirectory.lastPathComponent
@@ -118,7 +119,7 @@ final class DownloaderViewModel {
                 status: .completed
             )
             
-            try await storageService.addComic(comic)
+            try storageService.addComic(comic)
             
             status = .completed
             return comic
@@ -175,7 +176,7 @@ final class DownloaderViewModel {
             
             // 一時ファイルを保存先に移動
             let ext = item.fileExtension
-            let destinationURL = await storageService.createTempFilePath(extension: ext)
+            let destinationURL = storageService.createTempFilePath(extension: ext)
             
             let fileManager = FileManager.default
             if fileManager.fileExists(atPath: destinationURL.path) {
@@ -208,7 +209,6 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         super.init()
     }
     
-    // ダウンロード進捗
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
@@ -223,7 +223,6 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         progressHandler(min(progress, 1.0))
     }
     
-    // ダウンロード完了
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,

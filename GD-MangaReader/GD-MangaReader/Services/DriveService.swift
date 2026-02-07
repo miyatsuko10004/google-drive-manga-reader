@@ -8,10 +8,12 @@ import GoogleAPIClientForREST_Drive
 import GoogleSignIn
 
 /// Google Drive APIとの通信を担当するサービス
-actor DriveService {
+@MainActor
+final class DriveService {
     // MARK: - Properties
     
     private let service: GTLRDriveService
+    private var accessToken: String?
     
     // MARK: - Initialization
     
@@ -26,42 +28,33 @@ actor DriveService {
         service.authorizer = authorizer
     }
     
+    /// アクセストークンを設定（ダウンロード用）
+    func setAccessToken(_ token: String?) {
+        self.accessToken = token
+    }
+    
     // MARK: - File List
     
     /// 指定フォルダ内のファイル一覧を取得
-    /// - Parameters:
-    ///   - folderId: フォルダID（nilの場合はルート）
-    ///   - pageToken: ページネーション用トークン
-    /// - Returns: ファイル一覧と次ページトークン
     func listFiles(
         in folderId: String? = nil,
         pageToken: String? = nil
     ) async throws -> (items: [DriveItem], nextPageToken: String?) {
         let query = GTLRDriveQuery_FilesList.query()
         
-        // 検索クエリの構築
         let parentId = folderId ?? "root"
         let mimeTypeConditions = Config.SupportedFormats.mimeTypes
             .map { "mimeType='\($0)'" }
             .joined(separator: " or ")
         
         query.q = "'\(parentId)' in parents and trashed=false and (\(mimeTypeConditions))"
-        
-        // 取得するフィールドを指定
         query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime)"
-        
-        // ソート順（フォルダ優先、名前順）
         query.orderBy = "folder, name"
-        
-        // ページサイズ
         query.pageSize = 50
-        
-        // ページトークン
         query.pageToken = pageToken
         
-        // APIリクエスト実行
-        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GTLRDrive_FileList, Error>) in
-            service.executeQuery(query) { _, result, error in
+        let result: GTLRDrive_FileList = try await withCheckedThrowingContinuation { continuation in
+            self.service.executeQuery(query) { _, result, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else if let fileList = result as? GTLRDrive_FileList {
@@ -72,7 +65,6 @@ actor DriveService {
             }
         }
         
-        // GTLRDrive_FileからDriveItemへの変換
         let items = (result.files ?? []).compactMap { file -> DriveItem? in
             guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
                 return nil
@@ -94,8 +86,6 @@ actor DriveService {
     }
     
     /// ファイルのダウンロードURLを取得
-    /// - Parameter fileId: ファイルID
-    /// - Returns: ダウンロード用URLRequest
     func getDownloadRequest(for fileId: String) async throws -> URLRequest {
         let baseURL = "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media"
         guard let url = URL(string: baseURL) else {
@@ -104,27 +94,16 @@ actor DriveService {
         
         var request = URLRequest(url: url)
         
-        // 認証ヘッダーを追加
-        guard let authorizer = service.authorizer else {
+        // アクセストークンで認証
+        guard let token = accessToken else {
             throw DriveServiceError.authorizationFailed
         }
         
-        let authorizedRequest: URLRequest = try await withCheckedThrowingContinuation { continuation in
-            authorizer.authorizeRequest(request) { authRequest, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let authRequest = authRequest {
-                    continuation.resume(returning: authRequest)
-                } else {
-                    continuation.resume(throwing: DriveServiceError.authorizationFailed)
-                }
-            }
-        }
-        
-        return authorizedRequest
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
     }
     
-    /// フォルダ内の画像ファイル一覧を取得（画像フォルダ閲覧用）
+    /// フォルダ内の画像ファイル一覧を取得
     func listImages(in folderId: String) async throws -> [DriveItem] {
         let query = GTLRDriveQuery_FilesList.query()
         
@@ -135,10 +114,10 @@ actor DriveService {
         query.q = "'\(folderId)' in parents and trashed=false and (\(imageConditions))"
         query.fields = "files(id, name, mimeType, size, thumbnailLink, parents)"
         query.orderBy = "name"
-        query.pageSize = 500 // 画像は多い可能性があるため大きめに
+        query.pageSize = 500
         
-        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GTLRDrive_FileList, Error>) in
-            service.executeQuery(query) { _, result, error in
+        let result: GTLRDrive_FileList = try await withCheckedThrowingContinuation { continuation in
+            self.service.executeQuery(query) { _, result, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else if let fileList = result as? GTLRDrive_FileList {

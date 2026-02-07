@@ -61,16 +61,16 @@ final class LibraryViewModel {
     
     // MARK: - Initialization
     
-    init(driveService: DriveService = DriveService()) {
-        self.driveService = driveService
+    init(driveService: DriveService? = nil) {
+        self.driveService = driveService ?? DriveService()
     }
     
     // MARK: - Methods
     
     /// DriveServiceに認証情報を設定
-    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?) async {
+    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?) {
         guard let authorizer = authorizer else { return }
-        await driveService.configure(with: authorizer)
+        driveService.configure(with: authorizer)
     }
     
     /// ファイル一覧を読み込み

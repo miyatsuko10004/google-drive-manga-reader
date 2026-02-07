@@ -41,6 +41,11 @@ final class AuthViewModel {
         currentUser?.fetcherAuthorizer
     }
     
+    /// アクセストークン（ダウンロード認証用）
+    var accessToken: String? {
+        currentUser?.accessToken.tokenString
+    }
+    
     // MARK: - Methods
     
     /// 前回のサインイン情報を復元
@@ -112,13 +117,11 @@ final class AuthViewModel {
                     errorMessage = "画面の取得に失敗しました"
                     return
                 }
-                let result = try await GIDSignIn.sharedInstance.addScopes(
+                let result = try await user.addScopes(
                     Config.GoogleAPI.scopes,
                     presenting: presentingViewController
                 )
-                if let updatedUser = result?.user {
-                    currentUser = updatedUser
-                }
+                currentUser = result.user
             } catch {
                 errorMessage = "Drive APIへのアクセス許可が必要です"
                 return

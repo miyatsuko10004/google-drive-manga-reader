@@ -64,7 +64,7 @@ struct DownloadSheet: View {
                 }
             }
             .task {
-                await viewModel.configure(with: authViewModel.authorizer)
+                viewModel.configure(with: authViewModel.authorizer, accessToken: authViewModel.accessToken)
             }
         }
     }

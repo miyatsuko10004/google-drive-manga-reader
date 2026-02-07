@@ -184,11 +184,13 @@ struct LibraryView: View {
     
     /// エラー表示
     private func errorView(message: String) -> some View {
-        ContentUnavailableView(
-            "エラーが発生しました",
-            systemImage: "exclamationmark.triangle",
-            description: Text(message)
-        ) {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                "エラーが発生しました",
+                systemImage: "exclamationmark.triangle",
+                description: Text(message)
+            )
+            
             Button("再試行") {
                 Task { await libraryViewModel.loadFiles() }
             }

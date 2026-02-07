@@ -7,7 +7,7 @@ import Foundation
 import ZIPFoundation
 
 /// アーカイブファイルの解凍を担当するサービス
-actor ArchiveService {
+final class ArchiveService {
     // MARK: - Singleton
     
     static let shared = ArchiveService()
@@ -36,21 +36,15 @@ actor ArchiveService {
     // MARK: - Public Methods
     
     /// アーカイブファイルを解凍し、画像ファイル一覧を返す
-    /// - Parameters:
-    ///   - sourceURL: 解凍元ファイルのURL
-    ///   - destinationURL: 解凍先ディレクトリのURL
-    ///   - progress: 進捗コールバック (0.0〜1.0)
-    /// - Returns: 解凍された画像ファイル名の配列（ソート済み）
     func extract(
         from sourceURL: URL,
         to destinationURL: URL,
-        progress: ((Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [String] {
         guard let archiveType = ArchiveType(fileName: sourceURL.lastPathComponent) else {
             throw ArchiveServiceError.unsupportedFormat
         }
         
-        // ディレクトリ作成
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
@@ -60,13 +54,10 @@ actor ArchiveService {
         case .zip:
             try await extractZIP(from: sourceURL, to: destinationURL, progress: progress)
         case .rar:
-            // RAR対応は後から追加（UnrarKitの手動組み込みが必要）
             throw ArchiveServiceError.rarNotSupported
         }
         
-        // 画像ファイルを取得してソート
         let imageFiles = LocalStorageService.shared.getImageFiles(in: destinationURL)
-        
         return imageFiles
     }
     
@@ -75,83 +66,53 @@ actor ArchiveService {
     private func extractZIP(
         from sourceURL: URL,
         to destinationURL: URL,
-        progress: ((Double) -> Void)?
+        progress: (@Sendable (Double) -> Void)?
     ) async throws {
-        let fileManager = FileManager.default
-        
-        guard let archive = Archive(url: sourceURL, accessMode: .read) else {
-            throw ArchiveServiceError.cannotOpenArchive
-        }
-        
-        // エントリー数を取得してプログレス計算用
-        let entries = Array(archive)
-        let totalEntries = entries.count
-        var processedEntries = 0
-        
-        for entry in entries {
-            // ディレクトリエントリはスキップ
-            guard entry.type == .file else {
+        try await Task.detached {
+            let fileManager = FileManager.default
+            
+            guard let archive = Archive(url: sourceURL, accessMode: .read) else {
+                throw ArchiveServiceError.cannotOpenArchive
+            }
+            
+            let entries = Array(archive)
+            let totalEntries = entries.count
+            var processedEntries = 0
+            
+            for entry in entries {
+                guard entry.type == .file else {
+                    processedEntries += 1
+                    continue
+                }
+                
+                let fileName = entry.path
+                if fileName.hasPrefix(".") || fileName.hasPrefix("__MACOSX") {
+                    processedEntries += 1
+                    continue
+                }
+                
+                let ext = (fileName as NSString).pathExtension.lowercased()
+                guard Config.SupportedFormats.imageExtensions.contains(ext) else {
+                    processedEntries += 1
+                    continue
+                }
+                
+                let baseName = (fileName as NSString).lastPathComponent
+                let destinationPath = destinationURL.appendingPathComponent(baseName)
+                
+                if fileManager.fileExists(atPath: destinationPath.path) {
+                    try? fileManager.removeItem(at: destinationPath)
+                }
+                
+                _ = try archive.extract(entry, to: destinationPath)
+                
                 processedEntries += 1
-                continue
-            }
-            
-            // 隠しファイル（.で始まる）やMacのメタデータはスキップ
-            let fileName = entry.path
-            if fileName.hasPrefix(".") || fileName.hasPrefix("__MACOSX") {
-                processedEntries += 1
-                continue
-            }
-            
-            // 画像ファイルのみを抽出
-            let ext = (fileName as NSString).pathExtension.lowercased()
-            guard Config.SupportedFormats.imageExtensions.contains(ext) else {
-                processedEntries += 1
-                continue
-            }
-            
-            // ファイル名のみ取得（フォルダ構造をフラット化）
-            let baseName = (fileName as NSString).lastPathComponent
-            let destinationPath = destinationURL.appendingPathComponent(baseName)
-            
-            // 既存ファイルがあれば削除
-            if fileManager.fileExists(atPath: destinationPath.path) {
-                try? fileManager.removeItem(at: destinationPath)
-            }
-            
-            // 解凍
-            _ = try archive.extract(entry, to: destinationPath)
-            
-            // 進捗更新
-            processedEntries += 1
-            if let progress = progress {
-                let progressValue = Double(processedEntries) / Double(totalEntries)
-                await MainActor.run {
+                if let progress = progress {
+                    let progressValue = Double(processedEntries) / Double(totalEntries)
                     progress(progressValue)
                 }
             }
-        }
-    }
-    
-    // MARK: - RAR Extraction (Placeholder)
-    
-    /// RAR解凍（UnrarKit統合後に実装）
-    /// 現在はエラーを投げるのみ
-    private func extractRAR(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        progress: ((Double) -> Void)?
-    ) async throws {
-        // TODO: UnrarKitを手動で組み込んだ後に実装
-        // 以下のようなコードになる予定：
-        //
-        // guard let archive = URKArchive(path: sourceURL.path) else {
-        //     throw ArchiveServiceError.cannotOpenArchive
-        // }
-        // try archive.extractFiles(to: destinationURL.path, overwrite: true, progress: { progress, _ in
-        //     progressCallback?(Double(progress) / 100.0)
-        // })
-        
-        throw ArchiveServiceError.rarNotSupported
+        }.value
     }
 }
 
