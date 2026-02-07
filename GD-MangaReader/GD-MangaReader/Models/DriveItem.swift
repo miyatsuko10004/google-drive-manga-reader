@@ -43,6 +43,11 @@ struct DriveItem: Identifiable, Hashable, Sendable {
         Config.SupportedFormats.archiveExtensions.contains(fileExtension.lowercased())
     }
     
+    /// 画像ファイルかどうか
+    var isImage: Bool {
+        Config.SupportedFormats.imageExtensions.contains(fileExtension.lowercased())
+    }
+    
     /// ファイル拡張子
     var fileExtension: String {
         (name as NSString).pathExtension

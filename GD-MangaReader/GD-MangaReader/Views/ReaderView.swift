@@ -2,19 +2,20 @@
 // GD-MangaReader
 //
 // 漫画閲覧画面 - 横読み（RTL/LTR）、縦読み、ズーム、見開き表示対応
+//
 
 import SwiftUI
 
 /// 漫画閲覧画面
 struct ReaderView: View {
-    let comic: LocalComic
+    let source: any ComicSource
     @State private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
-    init(comic: LocalComic) {
-        self.comic = comic
-        self._viewModel = State(initialValue: ReaderViewModel(comic: comic))
+    init(source: any ComicSource) {
+        self.source = source
+        self._viewModel = State(initialValue: ReaderViewModel(source: source))
     }
     
     var body: some View {
@@ -78,7 +79,8 @@ struct ReaderView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.pageRange, id: \.self) { index in
                         ZoomableImageView(
-                            imagePath: comic.imagePaths[index],
+                            source: source,
+                            index: index,
                             geometry: geometry
                         )
                         .id(index)
@@ -98,7 +100,8 @@ struct ReaderView: View {
     @ViewBuilder
     private func singlePageView(index: Int, geometry: GeometryProxy) -> some View {
         ZoomableImageView(
-            imagePath: comic.imagePaths[index],
+            source: source,
+            index: index,
             geometry: geometry
         )
     }
@@ -112,7 +115,8 @@ struct ReaderView: View {
             
             if let leftIndex = leftIndex {
                 ZoomableImageView(
-                    imagePath: comic.imagePaths[leftIndex],
+                    source: source,
+                    index: leftIndex,
                     geometry: geometry,
                     isHalfWidth: true
                 )
@@ -123,7 +127,8 @@ struct ReaderView: View {
             
             if let rightIndex = rightIndex {
                 ZoomableImageView(
-                    imagePath: comic.imagePaths[rightIndex],
+                    source: source,
+                    index: rightIndex,
                     geometry: geometry,
                     isHalfWidth: true
                 )
@@ -140,6 +145,8 @@ struct ReaderView: View {
         VStack {
             // ヘッダー
             headerBar
+                // ステータスバーと被らないようにTopのSafe Areaを確保
+                .padding(.top, 44) // ノッチ分の概算、またはGeometryReaderで取得推奨だが簡易対応
             
             Spacer()
             
@@ -147,6 +154,7 @@ struct ReaderView: View {
             footerBar
         }
         .transition(.opacity)
+        .edgesIgnoringSafeArea(.all) // 背景グラデーションを端まで伸ばすために全体は無視させる
     }
     
     private var headerBar: some View {
@@ -163,7 +171,7 @@ struct ReaderView: View {
             
             Spacer()
             
-            Text(comic.title)
+            Text(source.title)
                 .font(.headline)
                 .foregroundColor(.white)
                 .lineLimit(1)
@@ -173,14 +181,15 @@ struct ReaderView: View {
             settingsMenu
         }
         .padding(.horizontal)
-        .padding(.top, 8)
+        .padding(.top, 8) // Safe Area分の調整はbackground内で行うか、ここで行う
         .background(
             LinearGradient(
                 colors: [.black.opacity(0.7), .clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 100)
+            .edgesIgnoringSafeArea(.top) // グラデーションはSafe Areaまで伸ばす
+            .frame(height: 140) // 高さを少し増やす
             .allowsHitTesting(false),
             alignment: .top
         )
@@ -209,9 +218,9 @@ struct ReaderView: View {
             }
         } label: {
             Image(systemName: "gearshape")
-                .font(.title2)
-                .foregroundColor(.white)
-                .padding()
+            .font(.title2)
+            .foregroundColor(.white)
+            .padding()
         }
     }
     
@@ -229,13 +238,13 @@ struct ReaderView: View {
                         get: { Double(viewModel.currentPage) },
                         set: { viewModel.currentPage = Int($0) }
                     ),
-                    in: 0...Double(max(0, comic.pageCount - 1)),
+                    in: 0...Double(max(0, source.pageCount - 1)),
                     step: 1
                 )
                 .tint(.orange)
                 .environment(\.layoutDirection, viewModel.isRightToLeft ? .rightToLeft : .leftToRight)
                 
-                Text("\(comic.pageCount)")
+                Text("\(source.pageCount)")
                     .font(.caption)
                     .foregroundColor(.white)
                     .frame(width: 40)
@@ -243,12 +252,14 @@ struct ReaderView: View {
             .padding(.horizontal)
         }
         .padding()
+        .padding(.bottom, 20) // Home Indicator分の余白
         .background(
             LinearGradient(
                 colors: [.clear, .black.opacity(0.7)],
                 startPoint: .top,
                 endPoint: .bottom
             )
+            .edgesIgnoringSafeArea(.bottom)
             .allowsHitTesting(false)
         )
     }
@@ -285,10 +296,7 @@ struct ReaderView: View {
     
     private func saveProgress() {
         Task {
-            var updatedComic = comic
-            updatedComic.lastReadPage = viewModel.currentPage
-            updatedComic.lastReadAt = Date()
-            try? await LocalStorageService.shared.updateComic(updatedComic)
+            await source.saveProgress(page: viewModel.currentPage)
         }
     }
 }
@@ -311,15 +319,15 @@ final class ReaderViewModel {
     var isSpreadEnabled: Bool = true
     var isSpreadMode: Bool = false
     
-    private let comic: LocalComic
+    private let source: any ComicSource
     
-    init(comic: LocalComic) {
-        self.comic = comic
-        self.currentPage = comic.lastReadPage
+    init(source: any ComicSource) {
+        self.source = source
+        self.currentPage = source.lastReadPage
     }
     
     var pageCount: Int {
-        comic.pageCount
+        source.pageCount
     }
     
     var pageRange: Range<Int> {
@@ -372,7 +380,8 @@ final class ReaderViewModel {
 // MARK: - Zoomable Image View
 
 struct ZoomableImageView: View {
-    let imagePath: URL
+    let source: any ComicSource
+    let index: Int
     let geometry: GeometryProxy
     var isHalfWidth: Bool = false
     
@@ -387,7 +396,7 @@ struct ZoomableImageView: View {
     var body: some View {
         let imageWidth = isHalfWidth ? geometry.size.width / 2 : geometry.size.width
         
-        AsyncImageView(url: imagePath)
+        AsyncImageView(source: source, index: index)
             .aspectRatio(contentMode: .fit)
             .frame(width: imageWidth, height: geometry.size.height)
             .scaleEffect(scale)
@@ -410,40 +419,42 @@ struct ZoomableImageView: View {
     
     private var magnificationGesture: some Gesture {
         MagnificationGesture()
-            .onChanged { value in
-                let newScale = lastScale * value
-                scale = min(max(newScale, minScale), maxScale)
-            }
-            .onEnded { _ in
-                lastScale = scale
-                if scale <= 1.0 {
-                    withAnimation(.spring()) {
-                        offset = .zero
-                        lastOffset = .zero
-                    }
+        .onChanged { value in
+            let newScale = lastScale * value
+            scale = min(max(newScale, minScale), maxScale)
+        }
+        .onEnded { _ in
+            lastScale = scale
+            if scale <= 1.0 {
+                withAnimation(.spring()) {
+                    offset = .zero
+                    lastOffset = .zero
                 }
             }
+        }
     }
     
     private var dragGesture: some Gesture {
         DragGesture()
-            .onChanged { value in
-                guard scale > 1.0 else { return }
-                offset = CGSize(
-                    width: lastOffset.width + value.translation.width,
-                    height: lastOffset.height + value.translation.height
-                )
-            }
-            .onEnded { _ in
-                lastOffset = offset
-            }
+        .onChanged { value in
+            guard scale > 1.0 else { return }
+            offset = CGSize(
+                width: lastOffset.width + value.translation.width,
+                height: lastOffset.height + value.translation.height
+            )
+        }
+        .onEnded { _ in
+            lastOffset = offset
+        }
     }
 }
 
-// MARK: - Async Image View (Local File)
+// MARK: - Async Image View (From Source)
 
 struct AsyncImageView: View {
-    let url: URL
+    let source: any ComicSource
+    let index: Int
+    
     @State private var image: UIImage?
     @State private var isLoading = true
     
@@ -462,7 +473,10 @@ struct AsyncImageView: View {
             }
         }
         .task {
-            await loadImage()
+            // すでに読み込まれていればスキップ
+            if image == nil {
+                await loadImage()
+            }
         }
     }
     
@@ -470,40 +484,16 @@ struct AsyncImageView: View {
         isLoading = true
         defer { isLoading = false }
         
-        // バックグラウンドで画像読み込み
-        let loadedImage = await Task.detached(priority: .userInitiated) {
-            guard let data = try? Data(contentsOf: url),
-                  let uiImage = UIImage(data: data) else {
-                return nil as UIImage?
+        // ソースから画像を取得（ダウンスプリング等はSource側でやる想定だが、念のため）
+        // LocalComicSource等はすでにダウンサンプリング済みを返す
+        if let loadedImage = try? await source.image(at: index) {
+            await MainActor.run {
+                self.image = loadedImage
             }
-            // ダウンサンプリングでメモリ効率化
-            return downsample(image: uiImage, to: UIScreen.main.bounds.size)
-        }.value
-        
-        await MainActor.run {
-            self.image = loadedImage
-        }
-    }
-    
-    /// 画像をダウンサンプリング
-    private func downsample(image: UIImage, to targetSize: CGSize) -> UIImage {
-        let scale = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
-        if scale >= 1.0 {
-            return image
-        }
-        
-        let newSize = CGSize(
-            width: image.size.width * scale,
-            height: image.size.height * scale
-        )
-        
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 }
 
 #Preview {
-    ReaderView(comic: .mock)
+    ReaderView(source: LocalComicSource(comic: .mock))
 }

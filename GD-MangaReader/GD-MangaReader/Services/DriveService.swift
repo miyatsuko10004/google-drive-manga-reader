@@ -14,6 +14,27 @@ final class DriveService {
     
     private let service: GTLRDriveService
     private var rootFolderId: String?
+    private var accessToken: String?
+    
+    // MARK: - Initialization
+    
+    init() {
+        self.service = GTLRDriveService()
+        self.service.shouldFetchNextPages = true
+        self.service.isRetryEnabled = true
+    }
+    
+    // MARK: - Configuration
+    
+    /// 認証情報を設定
+    func configure(with authorizer: any GTMFetcherAuthorizationProtocol) {
+        service.authorizer = authorizer
+    }
+    
+    /// アクセストークンを設定（直接ダウンロード用）
+    func setAccessToken(_ token: String?) {
+        self.accessToken = token
+    }
     
     // MARK: - Root Folder
     
@@ -171,6 +192,33 @@ final class DriveService {
                 modifiedTime: nil
             )
         }
+    }
+    
+    /// ファイルデータを直接ダウンロード（ストリーミング閲覧用）
+    func downloadFileData(fileId: String) async throws -> Data {
+        let baseURL = "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media"
+        guard let url = URL(string: baseURL) else {
+            throw DriveServiceError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        
+        // アクセストークンで認証
+        guard let token = accessToken else {
+            throw DriveServiceError.authorizationFailed
+        }
+        
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            print("❌ [DriveService] Download failed: \(response)")
+            throw DriveServiceError.invalidResponse
+        }
+        
+        return data
     }
     
     // MARK: - Private Methods

@@ -13,7 +13,12 @@ struct LibraryView: View {
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var showingDownloadSheet = false
-    @State private var comicToRead: LocalComic?
+    @State private var readingSession: ComicSession?
+    
+    struct ComicSession: Identifiable {
+        var id: String { source.id }
+        let source: any ComicSource
+    }
     
     private let gridColumns = [
         GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)
@@ -80,17 +85,19 @@ struct LibraryView: View {
                         target: target,
                         isPresented: $showingDownloadSheet,
                         onComplete: { comic in
-                            comicToRead = comic
+                            // ローカルコミックとして開く
+                            readingSession = ComicSession(source: LocalComicSource(comic: comic))
                         }
                     )
                 }
             }
-            .fullScreenCover(item: $comicToRead) { comic in
-                ReaderView(comic: comic)
+            .fullScreenCover(item: $readingSession) { session in
+                ReaderView(source: session.source)
             }
         }
     }
     
+
     // MARK: - Subviews
     
     /// ファイル一覧コンテンツ
@@ -262,9 +269,42 @@ struct LibraryView: View {
     private func handleItemTap(_ item: DriveItem) {
         if item.isFolder {
             Task { await libraryViewModel.navigateToFolder(item) }
-        } else if item.isArchive || Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
+        } else if item.isArchive {
+            // アーカイブファイルはダウンロード
             selectedItem = item
             showingDownloadSheet = true
+        } else if item.isImage {
+            // 画像ファイルはストリーミング閲覧開始
+            startStreamingRead(from: item)
+        }
+    }
+    
+    /// ストリーミング閲覧を開始
+    private func startStreamingRead(from item: DriveItem) {
+        // 現在のフォルダ内の全画像を取得
+        let images = libraryViewModel.items.filter { $0.isImage }
+        guard !images.isEmpty else { return }
+        
+        // アクセストークンをセット（重要: これがないと画像データがダウンロードできない）
+        libraryViewModel.driveService.setAccessToken(authViewModel.accessToken)
+        
+        // タップした画像のインデックスを特定
+        let initialIndex = images.firstIndex(where: { $0.id == item.id }) ?? 0
+        
+        // RemoteComicSourceを作成
+        let source = RemoteComicSource(
+            folderId: libraryViewModel.currentFolderId ?? "root",
+            title: libraryViewModel.currentFolderName,
+            files: images,
+            driveService: libraryViewModel.driveService
+        )
+        
+        // 初期ページを設定
+        Task {
+            await source.saveProgress(page: initialIndex)
+            await MainActor.run {
+                readingSession = ComicSession(source: source)
+            }
         }
     }
 }

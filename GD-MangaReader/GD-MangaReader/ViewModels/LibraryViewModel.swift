@@ -57,7 +57,9 @@ final class LibraryViewModel {
     
     // MARK: - Dependencies
     
-    private let driveService: DriveService
+    // MARK: - Dependencies
+    
+    let driveService: DriveService
     
     // MARK: - Initialization
     
