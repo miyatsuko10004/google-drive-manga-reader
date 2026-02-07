@@ -22,7 +22,7 @@ final class LibraryViewModel {
     private(set) var errorMessage: String?
     
     /// 現在のフォルダID（nilはルート）
-    private(set) var currentFolderId: String?
+    private(set) var currentFolderId: String? = Config.GoogleAPI.defaultFolderId
     
     /// フォルダ階層のパス（ナビゲーション用）
     private(set) var folderPath: [DriveItem] = []
@@ -37,7 +37,7 @@ final class LibraryViewModel {
     
     /// 現在のフォルダ名
     var currentFolderName: String {
-        folderPath.last?.name ?? "マイドライブ"
+        folderPath.last?.name ?? "manga"
     }
     
     /// 表示モード

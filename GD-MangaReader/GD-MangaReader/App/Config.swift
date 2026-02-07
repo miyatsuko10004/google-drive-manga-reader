@@ -7,15 +7,16 @@ import Foundation
 
 /// アプリケーション設定
 enum Config {
-    /// Google Drive APIのスコープ
+    /// Google API設定
     enum GoogleAPI {
-        /// Google Drive読み取り専用スコープ
+        /// Google Driveのアクセススコープ（読み取り専用）
         static let driveReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly"
         
         /// 必要なスコープ一覧
-        static let scopes: [String] = [
-            driveReadOnlyScope
-        ]
+        static let scopes: [String] = [driveReadOnlyScope]
+        
+        /// デフォルトのmangaフォルダID（マイドライブ/manga）
+        static let defaultFolderId: String? = "1MTQqHG1reKKgdt4iN5pECP5e6Oy-jv1s"
     }
     
     /// ローカルストレージ設定

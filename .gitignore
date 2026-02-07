@@ -82,3 +82,5 @@ GoogleService-Info.plist
 # Backup files
 *.bak
 *.orig
+
+Secrets.xcconfig

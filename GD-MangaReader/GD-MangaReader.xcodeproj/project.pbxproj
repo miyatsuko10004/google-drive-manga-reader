@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -35,7 +35,7 @@
 		0937CC0B45968A145974AE74 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0F4D3F0F27206B5F72E41AF5 /* DriveItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveItem.swift; sourceTree = "<group>"; };
 		366B371AFC2E82420E992F98 /* DownloadSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadSheet.swift; sourceTree = "<group>"; };
-		4239442CC4A595477575DFD8 /* GD-MangaReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GD-MangaReader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4239442CC4A595477575DFD8 /* GD-MangaReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "GD-MangaReader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F8C257AD1531162F99ABB73 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		57162B2F9481DA8480658357 /* ArchiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveService.swift; sourceTree = "<group>"; };
 		66EB8A1CE5D35656E8F64FC5 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
@@ -47,6 +47,7 @@
 		F0123081245CF6A7A204A5A9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		F1C66E33162104B3A9ED7E7F /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
 		FF3FD2438888BD526DE5F334 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		"TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +153,14 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		"TEMP_AE69651C-2FF0-4BA9-8463-36ADDBF6A1A2" /* GD-MangaReader */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */,
+			);
+			path = "GD-MangaReader";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -186,7 +195,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					E8F527CCFCA9FE456F34A57B = {
 						DevelopmentTeam = "";
@@ -210,6 +219,7 @@
 				110F7210039580B19578189F /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				7BE744B176340D0CED290A87 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -256,6 +266,7 @@
 /* Begin XCBuildConfiguration section */
 		46335909E9136A9BB49597BD /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -305,7 +316,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5;
@@ -314,6 +324,7 @@
 		};
 		503242F76C5FDD9A05509977 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -370,7 +381,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5;
@@ -451,8 +461,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 8.0.0;
+				branch = main;
+				kind = branch;
 			};
 		};
 		5644FE0EDD738C65FAB79A7C /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */ = {

@@ -19,6 +19,8 @@ final class DriveService {
     
     init() {
         self.service = GTLRDriveService()
+        // コールバックをメインスレッドで実行
+        self.service.callbackQueue = DispatchQueue.main
     }
     
     // MARK: - Configuration
@@ -47,23 +49,20 @@ final class DriveService {
             .map { "mimeType='\($0)'" }
             .joined(separator: " or ")
         
-        query.q = "'\(parentId)' in parents and trashed=false and (\(mimeTypeConditions))"
+        // 拡張子による検索条件を追加（MIMEタイプが正しく付与されていない場合対策）
+        let extensionConditions = Config.SupportedFormats.archiveExtensions
+            .map { "name contains '.\($0)'" }
+            .joined(separator: " or ")
+        
+        query.q = "'\(parentId)' in parents and trashed=false and (\(mimeTypeConditions) or \(extensionConditions))"
         query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime)"
         query.orderBy = "folder, name"
         query.pageSize = 50
         query.pageToken = pageToken
         
-        let result: GTLRDrive_FileList = try await withCheckedThrowingContinuation { continuation in
-            self.service.executeQuery(query) { _, result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let fileList = result as? GTLRDrive_FileList {
-                    continuation.resume(returning: fileList)
-                } else {
-                    continuation.resume(throwing: DriveServiceError.invalidResponse)
-                }
-            }
-        }
+        let result = try await executeFileListQuery(query)
+        
+        print("🔍 [DriveService] Found \(result.files?.count ?? 0) files in folder \(folderId ?? "root")")
         
         let items = (result.files ?? []).compactMap { file -> DriveItem? in
             guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
@@ -116,17 +115,7 @@ final class DriveService {
         query.orderBy = "name"
         query.pageSize = 500
         
-        let result: GTLRDrive_FileList = try await withCheckedThrowingContinuation { continuation in
-            self.service.executeQuery(query) { _, result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let fileList = result as? GTLRDrive_FileList {
-                    continuation.resume(returning: fileList)
-                } else {
-                    continuation.resume(throwing: DriveServiceError.invalidResponse)
-                }
-            }
-        }
+        let result = try await executeFileListQuery(query)
         
         return (result.files ?? []).compactMap { file -> DriveItem? in
             guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
@@ -143,6 +132,23 @@ final class DriveService {
                 createdTime: nil,
                 modifiedTime: nil
             )
+        }
+    }
+    
+    // MARK: - Private Methods
+    
+    /// GTLRクエリを実行（スレッドセーフ）
+    private func executeFileListQuery(_ query: GTLRDriveQuery_FilesList) async throws -> GTLRDrive_FileList {
+        try await withCheckedThrowingContinuation { continuation in
+            service.executeQuery(query) { _, result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let fileList = result as? GTLRDrive_FileList {
+                    continuation.resume(returning: fileList)
+                } else {
+                    continuation.resume(throwing: DriveServiceError.invalidResponse)
+                }
+            }
         }
     }
 }

@@ -7,6 +7,10 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+configFiles:
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "5"
@@ -15,7 +19,7 @@ settings:
 packages:
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
-    from: "8.0.0"
+    branch: main
   GoogleAPIClientForREST:
     url: https://github.com/google/google-api-objectivec-client-for-rest
     from: "3.0.0"
@@ -69,5 +73,5 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleURLTypes:
           - CFBundleURLSchemes:
-              - "com.googleusercontent.apps.YOUR_CLIENT_ID"
-        GIDClientID: "YOUR_CLIENT_ID.apps.googleusercontent.com"
+              - $(GID_REVERSED_CLIENT_ID)
+        GIDClientID: $(GID_CLIENT_ID).apps.googleusercontent.com

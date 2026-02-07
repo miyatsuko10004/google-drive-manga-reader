@@ -10,12 +10,20 @@ import GoogleSignIn
 struct GD_MangaReaderApp: App {
     @State private var authViewModel = AuthViewModel()
     
+    init() {
+        print("🚀 [APP] GD_MangaReaderApp init")
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(authViewModel)
                 .onOpenURL { url in
+                    print("📱 [APP] onOpenURL: \(url)")
                     GIDSignIn.sharedInstance.handle(url)
+                }
+                .onAppear {
+                    print("✅ [APP] ContentView appeared")
                 }
         }
     }
@@ -27,6 +35,7 @@ struct ContentView: View {
     
     var body: some View {
         Group {
+            let _ = print("🔍 [CONTENT] isSignedIn = \(authViewModel.isSignedIn)")
             if authViewModel.isSignedIn {
                 LibraryView()
             } else {
@@ -34,7 +43,10 @@ struct ContentView: View {
             }
         }
         .task {
-            await authViewModel.restorePreviousSignIn()
+            print("⏳ [CONTENT] Starting restorePreviousSignIn")
+            // FIXME: Tuning off restorePreviousSignIn to prevent crash on launch
+            // await authViewModel.restorePreviousSignIn()
+            print("✅ [CONTENT] restorePreviousSignIn completed (skipped), isSignedIn = \(authViewModel.isSignedIn)")
         }
     }
 }
