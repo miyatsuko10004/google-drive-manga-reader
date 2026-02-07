@@ -61,8 +61,14 @@ final class LibraryViewModel {
     
     // MARK: - Initialization
     
+    // MARK: - Initialization
+    
     init(driveService: DriveService? = nil) {
-        self.driveService = driveService ?? DriveService()
+        let service = driveService ?? DriveService()
+        self.driveService = service
+        // 初期状態ではまだルートIDが確定していないためnilスタート
+        // loadFiles()で確定させる
+        self.currentFolderId = nil
     }
     
     // MARK: - Methods
@@ -79,6 +85,12 @@ final class LibraryViewModel {
         errorMessage = nil
         
         do {
+            // 現在のフォルダIDが未設定の場合、ルートIDを取得して設定
+            if currentFolderId == nil {
+                let rootId = try await driveService.fetchRootFolderId()
+                currentFolderId = rootId
+            }
+            
             let result = try await driveService.listFiles(
                 in: currentFolderId,
                 pageToken: nil
@@ -87,6 +99,7 @@ final class LibraryViewModel {
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
+            // ルートフォルダが見つからない場合の特別なエラーハンドリングも検討可
         }
         
         isLoading = false
@@ -117,6 +130,7 @@ final class LibraryViewModel {
         guard folder.isFolder else { return }
         
         folderPath.append(folder)
+        
         currentFolderId = folder.id
         items = []
         await loadFiles()
@@ -127,7 +141,14 @@ final class LibraryViewModel {
         guard !folderPath.isEmpty else { return }
         
         folderPath.removeLast()
-        currentFolderId = folderPath.last?.id
+        
+        if let parentFolder = folderPath.last {
+            currentFolderId = parentFolder.id
+        } else {
+            // パスが空になったらルートIDに戻す
+            currentFolderId = try? await driveService.fetchRootFolderId()
+        }
+        
         items = []
         await loadFiles()
     }
@@ -135,7 +156,8 @@ final class LibraryViewModel {
     /// ルートに戻る
     func navigateToRoot() async {
         folderPath = []
-        currentFolderId = nil
+        // ルートIDを再取得（キャッシュされているはず）
+        currentFolderId = try? await driveService.fetchRootFolderId()
         items = []
         await loadFiles()
     }

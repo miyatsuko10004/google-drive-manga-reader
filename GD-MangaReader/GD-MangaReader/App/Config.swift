@@ -16,7 +16,12 @@ enum Config {
         static let scopes: [String] = [driveReadOnlyScope]
         
         /// デフォルトのmangaフォルダID（マイドライブ/manga）
+        /// 開発者メモ: これは開発者の環境個別のIDであるため、より汎用的にするには
+        /// "manga" という名前のフォルダをルートから検索するロジックが推奨される
         static let defaultFolderId: String? = "1MTQqHG1reKKgdt4iN5pECP5e6Oy-jv1s"
+        
+        /// ルートとするフォルダ名（このフォルダより上には行けない）
+        static let rootFolderName = "manga"
     }
     
     /// ローカルストレージ設定
