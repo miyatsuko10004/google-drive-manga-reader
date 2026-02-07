@@ -50,11 +50,16 @@ final class DriveService {
             .joined(separator: " or ")
         
         // 拡張子による検索条件を追加（MIMEタイプが正しく付与されていない場合対策）
-        let extensionConditions = Config.SupportedFormats.archiveExtensions
+        let archiveExtensionConditions = Config.SupportedFormats.archiveExtensions
             .map { "name contains '.\($0)'" }
+        
+        let imageExtensionConditions = Config.SupportedFormats.imageExtensions
+            .map { "name contains '.\($0)'" }
+            
+        let allExtensionConditions = (archiveExtensionConditions + imageExtensionConditions)
             .joined(separator: " or ")
         
-        query.q = "'\(parentId)' in parents and trashed=false and (\(mimeTypeConditions) or \(extensionConditions))"
+        query.q = "'\(parentId)' in parents and trashed=false and (\(mimeTypeConditions) or \(allExtensionConditions))"
         query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime)"
         query.orderBy = "folder, name"
         query.pageSize = 50

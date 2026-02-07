@@ -22,6 +22,9 @@ final class DownloaderViewModel {
     /// 現在のステータス
     private(set) var status: DownloadStatus = .pending
     
+    /// フォルダダウンロードモードかどうか
+    private var isFolderDownload: Bool = false
+    
     /// エラーメッセージ
     private(set) var errorMessage: String?
     
@@ -33,13 +36,13 @@ final class DownloaderViewModel {
         status == .downloading || status == .extracting
     }
     
-    /// 合計進捗（ダウンロード50% + 解凍50%）
+    /// 合計進捗
     var totalProgress: Double {
         switch status {
         case .pending:
             return 0
         case .downloading:
-            return downloadProgress * 0.5
+            return isFolderDownload ? downloadProgress : downloadProgress * 0.5
         case .extracting:
             return 0.5 + extractProgress * 0.5
         case .completed:
@@ -124,6 +127,87 @@ final class DownloaderViewModel {
             status = .completed
             return comic
             
+            
+        } catch {
+            status = .failed
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+    
+    /// フォルダ内の画像をダウンロードしてLocalComicを作成
+    func downloadFolder(folderId: String, folderName: String) async -> LocalComic? {
+        reset()
+        isFolderDownload = true
+        currentFileName = folderName
+        
+        do {
+            // 既にダウンロード済みかチェック
+            if let existingComic = try storageService.findComic(byDriveFileId: folderId) {
+                if existingComic.status == .completed {
+                    return existingComic
+                }
+            }
+            
+            // 1. 画像一覧取得
+            status = .downloading
+            let images = try await driveService.listImages(in: folderId)
+            
+            guard !images.isEmpty else {
+                errorMessage = "フォルダ内に画像が見つかりませんでした"
+                status = .failed
+                return nil
+            }
+            
+            // 2. ディレクトリ作成
+            let comicDirectory = try storageService.createComicDirectory(name: folderName)
+            
+            // 3. 画像を順次ダウンロード
+            var savedFileNames: [String] = []
+            let totalCount = Double(images.count)
+            
+            for (index, image) in images.enumerated() {
+                currentFileName = "\(folderName) (\(index + 1)/\(images.count))"
+                
+                // 個別ファイルのダウンロード
+                guard let tempURL = await downloadFile(item: image) else {
+                    // ダウンロード失敗時はエラーとする
+                    throw DownloaderError.downloadFailed
+                }
+                
+                // 保存先に移動
+                let destinationURL = comicDirectory.appendingPathComponent(image.name)
+                // 既存ファイルがあれば削除
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: destinationURL)
+                savedFileNames.append(image.name)
+                
+                // 進捗更新
+                let progress = Double(index + 1) / totalCount
+                downloadProgress = progress
+            }
+            
+            // ファイル名でソート
+            savedFileNames.sort()
+            
+            // 4. LocalComic作成・保存
+            let localPath = comicDirectory.lastPathComponent
+            let comic = LocalComic(
+                title: folderName,
+                driveFileId: folderId,
+                localPath: localPath,
+                imageFileNames: savedFileNames,
+                originalFileSize: nil, // フォルダサイズは不明
+                status: .completed
+            )
+            
+            try storageService.addComic(comic)
+            
+            status = .completed
+            return comic
+            
         } catch {
             status = .failed
             errorMessage = error.localizedDescription
@@ -138,6 +222,7 @@ final class DownloaderViewModel {
         status = .pending
         errorMessage = nil
         currentFileName = nil
+        isFolderDownload = false
     }
     
     // MARK: - Private Methods

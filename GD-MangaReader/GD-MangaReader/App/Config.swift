@@ -38,7 +38,11 @@ enum Config {
             "application/x-rar-compressed",
             "application/vnd.rar",
             "application/x-cbz",
-            "application/x-cbr"
+            "application/x-cbr",
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp"
         ]
         
         /// 画像ファイル拡張子

@@ -5,9 +5,36 @@
 
 import SwiftUI
 
+/// ダウンロード対象
+enum DownloadTarget {
+    case file(DriveItem)
+    case folder(id: String, name: String)
+    
+    var name: String {
+        switch self {
+        case .file(let item): return item.name
+        case .folder(_, let name): return name
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .file(let item): return item.iconName
+        case .folder: return "folder.fill"
+        }
+    }
+    
+    var sizeText: String {
+        switch self {
+        case .file(let item): return item.formattedSize
+        case .folder: return "フォルダ内の全画像"
+        }
+    }
+}
+
 /// ダウンロード進捗を表示するシート
 struct DownloadSheet: View {
-    let item: DriveItem
+    let target: DownloadTarget
     @Binding var isPresented: Bool
     var onComplete: (LocalComic) -> Void
     
@@ -26,19 +53,19 @@ struct DownloadSheet: View {
                         .fill(Color.orange.opacity(0.2))
                         .frame(width: 120, height: 120)
                     
-                    Image(systemName: item.iconName)
+                    Image(systemName: target.iconName)
                         .font(.system(size: 50))
                         .foregroundColor(.orange)
                 }
                 
                 // ファイル名
-                Text(item.name)
+                Text(target.name)
                     .font(.headline)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
                 
                 // サイズ
-                Text(item.formattedSize)
+                Text(target.sizeText)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
@@ -85,7 +112,7 @@ struct DownloadSheet: View {
                         .progressViewStyle(.linear)
                         .tint(.blue)
                     
-                    Text("ダウンロード中... \(Int(viewModel.downloadProgress * 100))%")
+                    Text(downloadStatusText)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -140,6 +167,14 @@ struct DownloadSheet: View {
         .padding(.horizontal, 32)
     }
     
+    private var downloadStatusText: String {
+        if case .folder = target {
+             return "ダウンロード中... \(Int(viewModel.downloadProgress * 100))%\n\(viewModel.currentFileName ?? "")"
+        } else {
+             return "ダウンロード中... \(Int(viewModel.downloadProgress * 100))%"
+        }
+    }
+    
     // MARK: - Action Buttons
     
     @ViewBuilder
@@ -192,8 +227,15 @@ struct DownloadSheet: View {
     
     private func startDownload() {
         Task {
-            if let comic = await viewModel.downloadAndExtract(item: item) {
-                downloadedComic = comic
+            switch target {
+            case .file(let item):
+                if let comic = await viewModel.downloadAndExtract(item: item) {
+                    downloadedComic = comic
+                }
+            case .folder(let id, let name):
+                if let comic = await viewModel.downloadFolder(folderId: id, folderName: name) {
+                    downloadedComic = comic
+                }
             }
         }
     }
@@ -201,7 +243,7 @@ struct DownloadSheet: View {
 
 #Preview {
     DownloadSheet(
-        item: .mockZipFile,
+        target: .file(.mockZipFile),
         isPresented: .constant(true),
         onComplete: { _ in }
     )

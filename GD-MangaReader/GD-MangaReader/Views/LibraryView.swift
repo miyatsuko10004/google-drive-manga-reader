@@ -63,8 +63,21 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $showingDownloadSheet) {
                 if let item = selectedItem {
+                    // ダウンロードターゲットを決定
+                    let target: DownloadTarget = {
+                        if item.isArchive {
+                            return .file(item)
+                        } else {
+                            // 画像ファイルの場合は親フォルダをダウンロード
+                            return .folder(
+                                id: libraryViewModel.currentFolderId ?? "root",
+                                name: libraryViewModel.currentFolderName
+                            )
+                        }
+                    }()
+                    
                     DownloadSheet(
-                        item: item,
+                        target: target,
                         isPresented: $showingDownloadSheet,
                         onComplete: { comic in
                             comicToRead = comic
@@ -249,7 +262,7 @@ struct LibraryView: View {
     private func handleItemTap(_ item: DriveItem) {
         if item.isFolder {
             Task { await libraryViewModel.navigateToFolder(item) }
-        } else if item.isArchive {
+        } else if item.isArchive || Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
             selectedItem = item
             showingDownloadSheet = true
         }
@@ -304,6 +317,8 @@ struct DriveItemGridCell: View {
             return .blue
         } else if item.isArchive {
             return .orange
+        } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
+            return .purple
         }
         return .gray
     }
@@ -363,6 +378,8 @@ struct DriveItemListRow: View {
             return .blue
         } else if item.isArchive {
             return .orange
+        } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
+            return .purple
         }
         return .gray
     }
