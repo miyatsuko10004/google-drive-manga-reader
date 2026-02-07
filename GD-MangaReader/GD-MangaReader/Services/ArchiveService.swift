@@ -133,7 +133,7 @@ enum ArchiveServiceError: LocalizedError {
         case .extractionFailed(let message):
             return "解凍に失敗しました: \(message)"
         case .rarNotSupported:
-            return "RAR形式は現在サポートされていません。ZIPまたはCBZ形式をお使いください。"
+            return "RAR形式はサポートされていません"
         }
     }
 }

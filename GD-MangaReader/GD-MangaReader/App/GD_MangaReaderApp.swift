@@ -45,7 +45,7 @@ struct ContentView: View {
         .task {
             print("⏳ [CONTENT] Starting restorePreviousSignIn")
             // FIXME: Tuning off restorePreviousSignIn to prevent crash on launch
-            // await authViewModel.restorePreviousSignIn()
+            await authViewModel.restorePreviousSignIn()
             print("✅ [CONTENT] restorePreviousSignIn completed (skipped), isSignedIn = \(authViewModel.isSignedIn)")
         }
     }

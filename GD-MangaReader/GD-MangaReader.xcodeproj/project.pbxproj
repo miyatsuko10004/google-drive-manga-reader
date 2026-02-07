@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -35,7 +35,7 @@
 		0937CC0B45968A145974AE74 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0F4D3F0F27206B5F72E41AF5 /* DriveItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveItem.swift; sourceTree = "<group>"; };
 		366B371AFC2E82420E992F98 /* DownloadSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadSheet.swift; sourceTree = "<group>"; };
-		4239442CC4A595477575DFD8 /* GD-MangaReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "GD-MangaReader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4239442CC4A595477575DFD8 /* GD-MangaReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GD-MangaReader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F8C257AD1531162F99ABB73 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		57162B2F9481DA8480658357 /* ArchiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveService.swift; sourceTree = "<group>"; };
 		66EB8A1CE5D35656E8F64FC5 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
@@ -47,7 +47,7 @@
 		F0123081245CF6A7A204A5A9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		F1C66E33162104B3A9ED7E7F /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
 		FF3FD2438888BD526DE5F334 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
-		"TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		"TEMP_72302B0C-964F-4C63-B3E2-A9AB3953B573" /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,6 +91,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		D434B0F52F371E7C004F65F8 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_72302B0C-964F-4C63-B3E2-A9AB3953B573" /* Secrets.xcconfig */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		D62E7EDAA5F4AA75A27D38AF /* GD-MangaReader */ = {
 			isa = PBXGroup;
 			children = (
@@ -129,6 +137,7 @@
 			children = (
 				D62E7EDAA5F4AA75A27D38AF /* GD-MangaReader */,
 				AF8A2834BFE1596BB7055211 /* Products */,
+				D434B0F52F371E7C004F65F8 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -151,14 +160,6 @@
 				66EB8A1CE5D35656E8F64FC5 /* ReaderView.swift */,
 			);
 			path = Views;
-			sourceTree = "<group>";
-		};
-		"TEMP_AE69651C-2FF0-4BA9-8463-36ADDBF6A1A2" /* GD-MangaReader */ = {
-			isa = PBXGroup;
-			children = (
-				"TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */,
-			);
-			path = "GD-MangaReader";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -198,7 +199,6 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					E8F527CCFCA9FE456F34A57B = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -219,7 +219,6 @@
 				110F7210039580B19578189F /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				7BE744B176340D0CED290A87 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -266,7 +265,7 @@
 /* Begin XCBuildConfiguration section */
 		46335909E9136A9BB49597BD /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */;
+			baseConfigurationReference = "TEMP_72302B0C-964F-4C63-B3E2-A9AB3953B573" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -324,7 +323,7 @@
 		};
 		503242F76C5FDD9A05509977 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_A7FF07D6-A4E5-4B3D-8033-6FFC500E0024" /* Secrets.xcconfig */;
+			baseConfigurationReference = "TEMP_72302B0C-964F-4C63-B3E2-A9AB3953B573" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -391,9 +390,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 2JFNPU25GG;
 				INFOPLIST_FILE = "GD-MangaReader/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -410,9 +410,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 2JFNPU25GG;
 				INFOPLIST_FILE = "GD-MangaReader/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
