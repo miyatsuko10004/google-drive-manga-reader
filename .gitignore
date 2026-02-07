@@ -1,0 +1,84 @@
+# Xcode
+#
+# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
+
+## User settings
+xcuserdata/
+
+## Obj-C/Swift specific
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+## Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# CocoaPods
+Pods/
+!Podfile.lock
+
+# Carthage
+Carthage/Build/
+
+# SPM
+.swiftpm/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+iOSInjectionProject/
+
+# Xcode build
+build/
+DerivedData/
+
+# Archives
+*.xcarchive
+
+# Crashlytics
+Fabric.framework/
+Crashlytics.framework/
+
+# Secrets / Client IDs
+# Uncomment the following line if you want to keep your Info.plist with actual client ID private
+# GD-MangaReader/GD-MangaReader/Info.plist
+
+# GoogleService configuration file (contains sensitive data)
+GoogleService-Info.plist
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Finder folder attributes
+.Spotlight-V100
+.Trashes
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.orig
