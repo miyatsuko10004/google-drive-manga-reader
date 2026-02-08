@@ -3,32 +3,38 @@
         {
             "idiom": "iphone",
             "size": "20x20",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
             "size": "20x20",
-            "scale": "3x"
+            "scale": "3x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
             "size": "29x29",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
             "size": "29x29",
-            "scale": "3x"
+            "scale": "3x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
             "size": "40x40",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
             "size": "40x40",
-            "scale": "3x"
+            "scale": "3x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "iphone",
@@ -45,32 +51,38 @@
         {
             "idiom": "ipad",
             "size": "20x20",
-            "scale": "1x"
+            "scale": "1x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
             "size": "20x20",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
             "size": "29x29",
-            "scale": "1x"
+            "scale": "1x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
             "size": "29x29",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
             "size": "40x40",
-            "scale": "1x"
+            "scale": "1x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
             "size": "40x40",
-            "scale": "2x"
+            "scale": "2x",
+            "filename": "AppIcon.png"
         },
         {
             "idiom": "ipad",
