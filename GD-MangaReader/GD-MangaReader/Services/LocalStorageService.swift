@@ -161,6 +161,33 @@ final class LocalStorageService: @unchecked Sendable {
         return totalSize
     }
     
+    func calculateSize(of comic: LocalComic) -> Int64 {
+        let comicPath = comicsDirectory.appendingPathComponent(comic.localPath)
+        var totalSize: Int64 = 0
+        
+        if let enumerator = fileManager.enumerator(at: comicPath, includingPropertiesForKeys: [.fileSizeKey]) {
+            while let fileURL = enumerator.nextObject() as? URL {
+                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    totalSize += Int64(size)
+                }
+            }
+        }
+        
+        return totalSize
+    }
+    
+    func clearAllComics() throws {
+        let comics = try loadComics()
+        for comic in comics {
+            let comicPath = comicsDirectory.appendingPathComponent(comic.localPath)
+            if fileManager.fileExists(atPath: comicPath.path) {
+                try fileManager.removeItem(at: comicPath)
+            }
+        }
+        
+        try saveComics([])
+    }
+    
     // MARK: - Helpers
     
     private func sanitizeFileName(_ name: String) -> String {

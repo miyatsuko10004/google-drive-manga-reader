@@ -16,7 +16,9 @@
 		5798188C47FA7E80649FE7E1 /* DownloadSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366B371AFC2E82420E992F98 /* DownloadSheet.swift */; };
 		5FA0A9004E18D06AC201D65A /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3FD2438888BD526DE5F334 /* Config.swift */; };
 		64172FD3E70437DB163DB721 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F8F09C59000CF6424FB77C /* LibraryView.swift */; };
+		773DA50338D4F1E30582D07E /* StorageManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3999ED4B92659B47257831 /* StorageManagementView.swift */; };
 		7DB7EEF106272DF094E9FBF6 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = B4F8510517EC45F54DA68B0E /* ZIPFoundation */; };
+		951AF136FD9B4F6CD7053178 /* StorageViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59B0625387A5F052BD0A25D1 /* StorageViewModel.swift */; };
 		A1CC5FFD6949D1EA710B0768 /* DriveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30E4FC7B92843F5B7176925 /* DriveService.swift */; };
 		A9D735334622383284EED2A7 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE303C111527EFA8854AE38 /* Kingfisher */; };
 		AA7A670CAFF22921700DEA61 /* LocalComic.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED314B4211EFDCDAC3C9BE87 /* LocalComic.swift */; };
@@ -39,17 +41,19 @@
 		4239442CC4A595477575DFD8 /* GD-MangaReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "GD-MangaReader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F8C257AD1531162F99ABB73 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		57162B2F9481DA8480658357 /* ArchiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveService.swift; sourceTree = "<group>"; };
+		59B0625387A5F052BD0A25D1 /* StorageViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageViewModel.swift; sourceTree = "<group>"; };
 		66EB8A1CE5D35656E8F64FC5 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		914B7DF720C3204B1FD583E4 /* GD_MangaReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GD_MangaReaderApp.swift; sourceTree = "<group>"; };
 		A23EA953BE67EB8F57876198 /* DownloaderViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloaderViewModel.swift; sourceTree = "<group>"; };
 		C30E4FC7B92843F5B7176925 /* DriveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveService.swift; sourceTree = "<group>"; };
 		DC32B7EC2FE132315347A904 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		ED314B4211EFDCDAC3C9BE87 /* LocalComic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalComic.swift; sourceTree = "<group>"; };
+		EE3999ED4B92659B47257831 /* StorageManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManagementView.swift; sourceTree = "<group>"; };
 		F0123081245CF6A7A204A5A9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		F1C66E33162104B3A9ED7E7F /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
 		FB0D58FEDC658123E0A9B070 /* ComicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicSource.swift; sourceTree = "<group>"; };
 		FF3FD2438888BD526DE5F334 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
-		"TEMP_21D58EB6-720A-4CF3-88D2-776F627F0525" /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		"TEMP_62D4EABE-BFA4-4D4F-90A9-E92D6CAE0764" /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +117,7 @@
 				DC32B7EC2FE132315347A904 /* AuthViewModel.swift */,
 				A23EA953BE67EB8F57876198 /* DownloaderViewModel.swift */,
 				03F615B47F1C48A599C124DF /* LibraryViewModel.swift */,
+				59B0625387A5F052BD0A25D1 /* StorageViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -152,14 +157,15 @@
 				07F8F09C59000CF6424FB77C /* LibraryView.swift */,
 				F0123081245CF6A7A204A5A9 /* LoginView.swift */,
 				66EB8A1CE5D35656E8F64FC5 /* ReaderView.swift */,
+				EE3999ED4B92659B47257831 /* StorageManagementView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
 		};
-		"TEMP_6C2DDAAF-D458-44C6-A14D-02D1128A639F" /* GD-MangaReader */ = {
+		"TEMP_D6A4F292-8D94-4DDC-99C9-1169B239B959" /* GD-MangaReader */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_21D58EB6-720A-4CF3-88D2-776F627F0525" /* Secrets.xcconfig */,
+				"TEMP_62D4EABE-BFA4-4D4F-90A9-E92D6CAE0764" /* Secrets.xcconfig */,
 			);
 			path = "GD-MangaReader";
 			sourceTree = "<group>";
@@ -262,6 +268,8 @@
 				D82A387AFC97404ED04B2ABC /* LocalStorageService.swift in Sources */,
 				1D5DEB84D5EBDBDA9A067EFC /* LoginView.swift in Sources */,
 				3DE0F93855BBA134C0B90EDE /* ReaderView.swift in Sources */,
+				773DA50338D4F1E30582D07E /* StorageManagementView.swift in Sources */,
+				951AF136FD9B4F6CD7053178 /* StorageViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -270,7 +278,7 @@
 /* Begin XCBuildConfiguration section */
 		46335909E9136A9BB49597BD /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_21D58EB6-720A-4CF3-88D2-776F627F0525" /* Secrets.xcconfig */;
+			baseConfigurationReference = "TEMP_62D4EABE-BFA4-4D4F-90A9-E92D6CAE0764" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -328,7 +336,7 @@
 		};
 		503242F76C5FDD9A05509977 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_21D58EB6-720A-4CF3-88D2-776F627F0525" /* Secrets.xcconfig */;
+			baseConfigurationReference = "TEMP_62D4EABE-BFA4-4D4F-90A9-E92D6CAE0764" /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
