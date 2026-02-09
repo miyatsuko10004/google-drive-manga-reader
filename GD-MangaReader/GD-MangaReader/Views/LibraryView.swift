@@ -21,7 +21,7 @@ struct LibraryView: View {
     }
     
     private let gridColumns = [
-        GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)
+        GridItem(.adaptive(minimum: 160), spacing: 20)
     ]
     
     var body: some View {
@@ -248,6 +248,15 @@ struct LibraryView: View {
                     Text(authViewModel.userName)
                     Text(authViewModel.userEmail)
                         .font(.caption)
+                }
+                
+                Divider()
+                
+                // ストレージ管理
+                NavigationLink {
+                    StorageManagementView()
+                } label: {
+                    Label("ストレージ管理", systemImage: "externaldrive")
                 }
                 
                 Divider()

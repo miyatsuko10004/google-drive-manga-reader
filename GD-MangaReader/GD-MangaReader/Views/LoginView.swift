@@ -91,6 +91,7 @@ struct LoginView: View {
                     .padding(.bottom)
             }
             .padding()
+            .frame(maxWidth: 500) // iPadなどで横に広がりすぎないようにする
         }
     }
 }

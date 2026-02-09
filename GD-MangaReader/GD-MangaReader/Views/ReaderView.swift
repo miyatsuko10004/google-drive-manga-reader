@@ -49,6 +49,19 @@ struct ReaderView: View {
         .onChange(of: horizontalSizeClass) { _, newValue in
             viewModel.updateSpreadMode(for: newValue)
         }
+        .focusable()
+        .onKeyPress(.leftArrow) {
+            handleLeftKey()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            handleRightKey()
+            return .handled
+        }
+        .onKeyPress(.space) {
+            viewModel.goToNextPage()
+            return .handled
+        }
     }
     
     // MARK: - Horizontal Reader (Left/Right Swipe)
@@ -289,6 +302,40 @@ struct ReaderView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.showUI.toggle()
             }
+        }
+    }
+    
+    // MARK: - Keyboard Handling
+    
+    private func handleLeftKey() {
+        if viewModel.readingMode == .vertical {
+            // 縦読み: 上へ？ (ページ戻り)
+            viewModel.goToPreviousPage()
+            return
+        }
+        
+        if viewModel.isRightToLeft {
+            // 右から左（日本式）: 左キー＝進む（次ページ）
+            viewModel.goToNextPage()
+        } else {
+            // 左から右: 左キー＝戻る
+            viewModel.goToPreviousPage()
+        }
+    }
+    
+    private func handleRightKey() {
+        if viewModel.readingMode == .vertical {
+            // 縦読み: 下へ？ (ページ進み)
+            viewModel.goToNextPage()
+            return
+        }
+        
+        if viewModel.isRightToLeft {
+            // 右から左（日本式）: 右キー＝戻る
+            viewModel.goToPreviousPage()
+        } else {
+            // 左から右: 右キー＝進む（次ページ）
+            viewModel.goToNextPage()
         }
     }
     
