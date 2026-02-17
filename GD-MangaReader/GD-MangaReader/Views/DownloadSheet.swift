@@ -92,6 +92,8 @@ struct DownloadSheet: View {
             }
             .task {
                 viewModel.configure(with: authViewModel.authorizer, accessToken: authViewModel.accessToken)
+                // ダウンロード済みかチェック
+                checkAlreadyDownloaded()
             }
         }
     }
@@ -237,6 +239,21 @@ struct DownloadSheet: View {
                     downloadedComic = comic
                 }
             }
+        }
+    }
+    
+    /// ダウンロード済みかチェックし、既に完了していれば完了状態で表示
+    private func checkAlreadyDownloaded() {
+        let driveFileId: String
+        switch target {
+        case .file(let item): driveFileId = item.id
+        case .folder(let id, _): driveFileId = id
+        }
+        
+        if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: driveFileId),
+           existingComic.status == .completed {
+            downloadedComic = existingComic
+            viewModel.status = .completed
         }
     }
 }
