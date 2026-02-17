@@ -12,7 +12,6 @@ struct LibraryView: View {
     @State private var libraryViewModel = LibraryViewModel()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
-    @State private var showingDownloadSheet = false
     @State private var readingSession: ComicSession?
     
     struct ComicSession: Identifiable {
@@ -21,7 +20,7 @@ struct LibraryView: View {
     }
     
     private let gridColumns = [
-        GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)
+        GridItem(.adaptive(minimum: 160), spacing: 20)
     ]
     
     var body: some View {
@@ -66,30 +65,32 @@ struct LibraryView: View {
             } message: {
                 Text("サインアウトしますか？")
             }
-            .sheet(isPresented: $showingDownloadSheet) {
-                if let item = selectedItem {
-                    // ダウンロードターゲットを決定
-                    let target: DownloadTarget = {
-                        if item.isArchive {
-                            return .file(item)
-                        } else {
-                            // 画像ファイルの場合は親フォルダをダウンロード
-                            return .folder(
-                                id: libraryViewModel.currentFolderId ?? "root",
-                                name: libraryViewModel.currentFolderName
-                            )
-                        }
-                    }()
-                    
-                    DownloadSheet(
-                        target: target,
-                        isPresented: $showingDownloadSheet,
-                        onComplete: { comic in
-                            // ローカルコミックとして開く
-                            readingSession = ComicSession(source: LocalComicSource(comic: comic))
-                        }
-                    )
-                }
+            .sheet(item: $selectedItem) { item in
+                // ダウンロードターゲットを決定
+                let target: DownloadTarget = {
+                    if item.isArchive {
+                        return .file(item)
+                    } else {
+                        // 画像ファイルの場合は親フォルダをダウンロード
+                        return .folder(
+                            id: libraryViewModel.currentFolderId ?? "root",
+                            name: libraryViewModel.currentFolderName
+                        )
+                    }
+                }()
+                
+                DownloadSheet(
+                    target: target,
+                    isPresented: Binding(
+                        get: { self.selectedItem != nil },
+                        set: { if !$0 { self.selectedItem = nil } }
+                    ),
+                    onComplete: { comic in
+                        // ローカルコミックとして開く
+                        self.selectedItem = nil
+                        readingSession = ComicSession(source: LocalComicSource(comic: comic))
+                    }
+                )
             }
             .fullScreenCover(item: $readingSession) { session in
                 ReaderView(source: session.source)
@@ -252,6 +253,15 @@ struct LibraryView: View {
                 
                 Divider()
                 
+                // ストレージ管理
+                NavigationLink {
+                    StorageManagementView()
+                } label: {
+                    Label("ストレージ管理", systemImage: "externaldrive")
+                }
+                
+                Divider()
+                
                 // サインアウト
                 Button(role: .destructive) {
                     showingSignOutAlert = true
@@ -270,9 +280,15 @@ struct LibraryView: View {
         if item.isFolder {
             Task { await libraryViewModel.navigateToFolder(item) }
         } else if item.isArchive {
-            // アーカイブファイルはダウンロード
-            selectedItem = item
-            showingDownloadSheet = true
+            // ダウンロード済みか確認
+            if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
+               existingComic.status == .completed {
+                // ダウンロード済み → 直接リーダーを開く
+                readingSession = ComicSession(source: LocalComicSource(comic: existingComic))
+            } else {
+                // 未ダウンロード → ダウンロードシートを表示
+                selectedItem = item
+            }
         } else if item.isImage {
             // 画像ファイルはストリーミング閲覧開始
             startStreamingRead(from: item)

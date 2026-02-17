@@ -20,7 +20,8 @@ final class DownloaderViewModel {
     private(set) var extractProgress: Double = 0
     
     /// 現在のステータス
-    private(set) var status: DownloadStatus = .pending
+    /// DownloadSheetから既存コミック検出時に.completedを設定するためinternal(set)
+    internal(set) var status: DownloadStatus = .pending
     
     /// フォルダダウンロードモードかどうか
     private var isFolderDownload: Bool = false
@@ -82,6 +83,7 @@ final class DownloaderViewModel {
             // 既にダウンロード済みかチェック
             if let existingComic = try storageService.findComic(byDriveFileId: item.id) {
                 if existingComic.status == .completed {
+                    status = .completed
                     return existingComic
                 }
             }
@@ -145,6 +147,7 @@ final class DownloaderViewModel {
             // 既にダウンロード済みかチェック
             if let existingComic = try storageService.findComic(byDriveFileId: folderId) {
                 if existingComic.status == .completed {
+                    status = .completed
                     return existingComic
                 }
             }
