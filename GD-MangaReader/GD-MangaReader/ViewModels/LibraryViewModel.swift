@@ -227,8 +227,14 @@ final class LibraryViewModel {
         // 多重起動防止
         guard !isBulkDownloading else { return }
         
+        // Task起動前にフラグを立てることで、連続タップによる複数実行（競合）を防止
+        isBulkDownloading = true
+        
         Task {
-            isBulkDownloading = true
+            defer {
+                resetBulkDownloadState()
+            }
+            
             bulkDownloadTargetFolderId = folder.id
             bulkDownloadCurrent = 0
             bulkDownloadTotal = 0
@@ -257,7 +263,6 @@ final class LibraryViewModel {
                 
                 if bulkDownloadTotal == 0 {
                     // 全てダウンロード済み
-                    resetBulkDownloadState()
                     return
                 }
                 
@@ -273,8 +278,6 @@ final class LibraryViewModel {
             } catch {
                 print("Bulk download error: \(error)")
             }
-            
-            resetBulkDownloadState()
         }
     }
     
