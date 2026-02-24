@@ -27,6 +27,9 @@ final class LibraryViewModel {
     /// フォルダ階層のパス（ナビゲーション用）
     private(set) var folderPath: [DriveItem] = []
     
+    /// ダウンロード完了時のUI更新トリガー
+    private(set) var downloadUpdateTrigger: Int = 0
+    
     /// 次ページトークン（ページネーション用）
     private var nextPageToken: String?
     
@@ -167,6 +170,38 @@ final class LibraryViewModel {
     /// リフレッシュ
     func refresh() async {
         await loadFiles()
+    }
+    
+    /// 一括ダウンロード
+    func bulkDownloadSeries(folder: DriveItem, authorizer: (any GTMFetcherAuthorizationProtocol)?, accessToken: String?) {
+        Task {
+            do {
+                var allItems: [DriveItem] = []
+                var token: String? = nil
+                repeat {
+                    let result = try await driveService.listFiles(in: folder.id, pageToken: token)
+                    allItems.append(contentsOf: result.items)
+                    token = result.nextPageToken
+                } while token != nil
+                
+                let archives = allItems.filter { $0.isArchive }
+                
+                for archive in archives {
+                    if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: archive.id),
+                       existing.status == .completed {
+                        continue
+                    }
+                    
+                    let downloader = DownloaderViewModel(driveService: driveService)
+                    downloader.configure(with: authorizer, accessToken: accessToken)
+                    _ = await downloader.downloadAndExtract(item: archive)
+                    
+                    self.downloadUpdateTrigger += 1
+                }
+            } catch {
+                print("Bulk download error: \(error)")
+            }
+        }
     }
 }
 

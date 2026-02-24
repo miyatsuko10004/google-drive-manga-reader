@@ -13,6 +13,9 @@ struct LibraryView: View {
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
+    @State private var showingBulkDownloadConfirmation = false
+    @State private var selectedFolderForBulk: DriveItem?
+    @State private var localRefreshTrigger = 0
     
     struct ComicSession: Identifiable {
         var id: String { source.id }
@@ -64,6 +67,27 @@ struct LibraryView: View {
                 }
             } message: {
                 Text("サインアウトしますか？")
+            }
+            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
+                Button("キャンセル", role: .cancel) {}
+                Button("ダウンロード") {
+                    if let folder = selectedFolderForBulk {
+                        libraryViewModel.bulkDownloadSeries(
+                            folder: folder,
+                            authorizer: authViewModel.authorizer,
+                            accessToken: authViewModel.accessToken
+                        )
+                    }
+                }
+            } message: {
+                if let folder = selectedFolderForBulk {
+                    Text("\(folder.name)内のすべてのファイルを一括ダウンロードします。")
+                }
+            }
+            .onChange(of: selectedItem) { _, newValue in
+                if newValue == nil {
+                    localRefreshTrigger += 1
+                }
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定
@@ -132,9 +156,15 @@ struct LibraryView: View {
     private var gridView: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemGridCell(item: item)
+                DriveItemGridCell(item: item, refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger)
                     .onTapGesture {
                         handleItemTap(item)
+                    }
+                    .onLongPressGesture {
+                        if item.isFolder {
+                            selectedFolderForBulk = item
+                            showingBulkDownloadConfirmation = true
+                        }
                     }
             }
         }
@@ -144,9 +174,15 @@ struct LibraryView: View {
     private var listView: some View {
         LazyVStack(spacing: 8) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemListRow(item: item)
+                DriveItemListRow(item: item, refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger)
                     .onTapGesture {
                         handleItemTap(item)
+                    }
+                    .onLongPressGesture {
+                        if item.isFolder {
+                            selectedFolderForBulk = item
+                            showingBulkDownloadConfirmation = true
+                        }
                     }
             }
         }
@@ -330,6 +366,8 @@ struct LibraryView: View {
 /// グリッド表示用セル
 struct DriveItemGridCell: View {
     let item: DriveItem
+    let refreshTrigger: Int
+    @State private var isDownloaded: Bool = false
     
     var body: some View {
         VStack(spacing: 8) {
@@ -351,6 +389,15 @@ struct DriveItemGridCell: View {
                 }
             }
             .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+            .overlay(alignment: .topTrailing) {
+                if isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.green)
+                        .background(Circle().fill(.white).frame(width: 18, height: 18))
+                        .offset(x: 4, y: -4)
+                }
+            }
             
             // ファイル名
             Text(item.name)
@@ -366,6 +413,17 @@ struct DriveItemGridCell: View {
             }
         }
         .padding(8)
+        .onAppear { checkDownloaded() }
+        .onChange(of: refreshTrigger) { _, _ in checkDownloaded() }
+    }
+    
+    private func checkDownloaded() {
+        if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
+           existing.status == .completed {
+            isDownloaded = true
+        } else {
+            isDownloaded = false
+        }
     }
     
     private var iconColor: Color {
@@ -385,6 +443,8 @@ struct DriveItemGridCell: View {
 /// リスト表示用行
 struct DriveItemListRow: View {
     let item: DriveItem
+    let refreshTrigger: Int
+    @State private var isDownloaded: Bool = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -397,6 +457,15 @@ struct DriveItemListRow: View {
                 Image(systemName: item.iconName)
                     .font(.title3)
                     .foregroundColor(iconColor)
+            }
+            .overlay(alignment: .topTrailing) {
+                if isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .background(Circle().fill(.white).frame(width: 12, height: 12))
+                        .offset(x: 2, y: -2)
+                }
             }
             
             // ファイル情報
@@ -427,6 +496,17 @@ struct DriveItemListRow: View {
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .onAppear { checkDownloaded() }
+        .onChange(of: refreshTrigger) { _, _ in checkDownloaded() }
+    }
+    
+    private func checkDownloaded() {
+        if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
+           existing.status == .completed {
+            isDownloaded = true
+        } else {
+            isDownloaded = false
+        }
     }
     
     private var iconColor: Color {

@@ -236,44 +236,46 @@ final class DownloaderViewModel {
             let request = try await driveService.getDownloadRequest(for: item.id)
             let expectedSize = item.size ?? 0
             
-            // ダウンロードデリゲートを作成
-            let delegate = DownloadDelegate(
-                expectedContentLength: expectedSize
-            ) { [weak self] progress in
-                Task { @MainActor in
-                    self?.downloadProgress = progress
-                }
+            return try await withCheckedThrowingContinuation { continuation in
+                let delegate = DownloadDelegate(
+                    expectedContentLength: expectedSize,
+                    progressHandler: { [weak self] progress in
+                        Task { @MainActor in
+                            self?.downloadProgress = progress
+                        }
+                    },
+                    completionHandler: { result in
+                    switch result {
+                    case .success(let (tempURL, response)):
+                        guard let httpResponse = response as? HTTPURLResponse,
+                              (200...299).contains(httpResponse.statusCode) else {
+                            continuation.resume(throwing: DownloaderError.httpError)
+                            return
+                        }
+                        
+                        do {
+                            let ext = item.fileExtension
+                            let destinationURL = LocalStorageService.shared.createTempFilePath(extension: ext)
+                            
+                            let fileManager = FileManager.default
+                            if fileManager.fileExists(atPath: destinationURL.path) {
+                                try fileManager.removeItem(at: destinationURL)
+                            }
+                            try fileManager.moveItem(at: tempURL, to: destinationURL)
+                            continuation.resume(returning: destinationURL)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                })
+                
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                delegate.session = session // Retain session internally to invalidate later
+                let task = session.downloadTask(with: request)
+                task.resume()
             }
-            
-            // カスタムセッションでダウンロード
-            let session = URLSession(
-                configuration: .default,
-                delegate: delegate,
-                delegateQueue: nil
-            )
-            
-            defer { session.invalidateAndCancel() }
-            
-            let (tempLocalURL, response) = try await session.download(for: request)
-            
-            // HTTPエラーチェック
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw DownloaderError.httpError
-            }
-            
-            // 一時ファイルを保存先に移動
-            let ext = item.fileExtension
-            let destinationURL = storageService.createTempFilePath(extension: ext)
-            
-            let fileManager = FileManager.default
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
-            }
-            try fileManager.moveItem(at: tempLocalURL, to: destinationURL)
-            
-            return destinationURL
-            
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -286,14 +288,18 @@ final class DownloaderViewModel {
 /// ダウンロード進捗を追跡するデリゲート
 private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private let progressHandler: @Sendable (Double) -> Void
+    private let completionHandler: (Result<(URL, URLResponse), Error>) -> Void
     private let expectedContentLength: Int64
+    var session: URLSession?
     
     init(
         expectedContentLength: Int64,
-        progressHandler: @escaping @Sendable (Double) -> Void
+        progressHandler: @escaping @Sendable (Double) -> Void,
+        completionHandler: @escaping (Result<(URL, URLResponse), Error>) -> Void
     ) {
         self.expectedContentLength = expectedContentLength
         self.progressHandler = progressHandler
+        self.completionHandler = completionHandler
         super.init()
     }
     
@@ -307,6 +313,7 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedContentLength
         guard total > 0 else { return }
         
+        // Sometimes total isn't accurate if compressed, cap at 1.0 but don't stick to 0
         let progress = Double(totalBytesWritten) / Double(total)
         progressHandler(min(progress, 1.0))
     }
@@ -316,7 +323,35 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
-        // URLSession.download(for:)が処理するため、ここでは何もしない
+        if let response = downloadTask.response {
+            // Because location is temporary, we must move/copy it before returning or use it immediately.
+            // Using continuation in completion handler requires temp file to be valid.
+            // URLSession removes the file after this method returns. So we move it here first.
+            let tempDir = FileManager.default.temporaryDirectory
+            let uniqueURL = tempDir.appendingPathComponent(UUID().uuidString)
+            do {
+                try FileManager.default.moveItem(at: location, to: uniqueURL)
+                completionHandler(.success((uniqueURL, response)))
+            } catch {
+                completionHandler(.failure(error))
+            }
+        } else {
+            completionHandler(.failure(DownloaderError.downloadFailed))
+        }
+        self.session?.invalidateAndCancel()
+        self.session = nil
+    }
+    
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error = error {
+            completionHandler(.failure(error))
+            self.session?.invalidateAndCancel()
+            self.session = nil
+        }
     }
 }
 

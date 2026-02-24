@@ -449,7 +449,7 @@ struct ZoomableImageView: View {
             .scaleEffect(scale)
             .offset(offset)
             .gesture(magnificationGesture)
-            .gesture(dragGesture)
+            .gesture(dragGesture, including: scale > 1.0 ? .all : .subviews)
             .onTapGesture(count: 2) {
                 withAnimation(.spring()) {
                     if scale > 1.0 {
