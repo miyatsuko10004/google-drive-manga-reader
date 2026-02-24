@@ -294,6 +294,7 @@ final class LibraryViewModel {
                     self.downloadUpdateTrigger += 1
                 }
             } catch {
+                errorMessage = "一括ダウンロード中にエラーが発生しました: \(error.localizedDescription)"
                 print("Bulk download error: \(error)")
             }
         }
