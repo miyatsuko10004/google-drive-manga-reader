@@ -21,6 +21,11 @@ final class LibraryViewModel {
     /// エラーメッセージ
     private(set) var errorMessage: String?
     
+    // MARK: - Local Cache
+    
+    /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
+    private(set) var downloadedComics: [String: LocalComic] = [:]
+    
     /// 現在のフォルダID（nilはルート）
     private(set) var currentFolderId: String? = Config.GoogleAPI.defaultFolderId
     
@@ -118,6 +123,7 @@ final class LibraryViewModel {
     
     /// ファイル一覧を読み込み
     func loadFiles() async {
+        refreshDownloadedComics()
         isLoading = true
         errorMessage = nil
         
@@ -141,6 +147,17 @@ final class LibraryViewModel {
         }
         
         isLoading = false
+    }
+    
+    /// ダウンロード済みコミックリストを更新
+    func refreshDownloadedComics() {
+        if let comics = try? LocalStorageService.shared.loadComics() {
+            var newCache: [String: LocalComic] = [:]
+            for comic in comics where comic.status == .completed {
+                newCache[comic.driveFileId] = comic
+            }
+            downloadedComics = newCache
+        }
     }
     
     /// 次のページを読み込み
@@ -273,6 +290,7 @@ final class LibraryViewModel {
                     downloader.configure(with: authorizer, accessToken: accessToken)
                     _ = await downloader.downloadAndExtract(item: archive)
                     
+                    self.refreshDownloadedComics()
                     self.downloadUpdateTrigger += 1
                 }
             } catch {

@@ -89,7 +89,7 @@ struct LibraryView: View {
                 }
             } message: {
                 if let folder = selectedFolderForBulk {
-                    Text("\(folder.name)内のすべてのファイルを一括ダウンロードします。")
+                    Text("\(folder.name)内のアーカイブを一括ダウンロードします。")
                 }
             }
             .onChange(of: selectedItem) { _, newValue in
@@ -166,8 +166,8 @@ struct LibraryView: View {
             ForEach(libraryViewModel.items) { item in
                 DriveItemGridCell(
                     item: item,
-                    refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId)
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    localComic: libraryViewModel.downloadedComics[item.id]
                 )
                     .onTapGesture {
                         handleItemTap(item)
@@ -188,8 +188,8 @@ struct LibraryView: View {
             ForEach(libraryViewModel.items) { item in
                 DriveItemListRow(
                     item: item,
-                    refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId)
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    localComic: libraryViewModel.downloadedComics[item.id]
                 )
                     .onTapGesture {
                         handleItemTap(item)
@@ -424,11 +424,12 @@ struct LibraryView: View {
 /// グリッド表示用セル
 struct DriveItemGridCell: View {
     let item: DriveItem
-    let refreshTrigger: Int
     let isBulkDownloading: Bool
-    @State private var isDownloaded: Bool = false
-    @State private var localThumbnailURL: URL? = nil
-    @State private var readingProgress: Double = 0.0
+    let localComic: LocalComic?
+    
+    private var isDownloaded: Bool { localComic != nil }
+    private var localThumbnailURL: URL? { localComic?.imagePaths.first }
+    private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
     
     var body: some View {
         VStack(spacing: 8) {
@@ -496,21 +497,6 @@ struct DriveItemGridCell: View {
             }
         }
         .padding(8)
-        .onAppear { checkDownloaded() }
-        .onChange(of: refreshTrigger) { _, _ in checkDownloaded() }
-    }
-    
-    private func checkDownloaded() {
-        if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
-           existing.status == .completed {
-            isDownloaded = true
-            localThumbnailURL = existing.imagePaths.first
-            readingProgress = existing.readingProgress
-        } else {
-            isDownloaded = false
-            localThumbnailURL = nil
-            readingProgress = 0.0
-        }
     }
     
     private var iconColor: Color {
@@ -530,11 +516,12 @@ struct DriveItemGridCell: View {
 /// リスト表示用行
 struct DriveItemListRow: View {
     let item: DriveItem
-    let refreshTrigger: Int
     let isBulkDownloading: Bool
-    @State private var isDownloaded: Bool = false
-    @State private var localThumbnailURL: URL? = nil
-    @State private var readingProgress: Double = 0.0
+    let localComic: LocalComic?
+    
+    private var isDownloaded: Bool { localComic != nil }
+    private var localThumbnailURL: URL? { localComic?.imagePaths.first }
+    private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -609,21 +596,6 @@ struct DriveItemListRow: View {
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .onAppear { checkDownloaded() }
-        .onChange(of: refreshTrigger) { _, _ in checkDownloaded() }
-    }
-    
-    private func checkDownloaded() {
-        if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
-           existing.status == .completed {
-            isDownloaded = true
-            localThumbnailURL = existing.imagePaths.first
-            readingProgress = existing.readingProgress
-        } else {
-            isDownloaded = false
-            localThumbnailURL = nil
-            readingProgress = 0.0
-        }
     }
     
     private var iconColor: Color {

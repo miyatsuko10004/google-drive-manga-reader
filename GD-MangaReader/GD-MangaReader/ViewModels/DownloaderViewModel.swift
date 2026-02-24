@@ -247,6 +247,13 @@ final class DownloaderViewModel {
                     completionHandler: { result in
                     switch result {
                     case .success(let (tempURL, response)):
+                        defer {
+                            // Ensure temp file is cleaned up if it still exists (e.g., if moveItem failed or early return)
+                            if FileManager.default.fileExists(atPath: tempURL.path) {
+                                try? FileManager.default.removeItem(at: tempURL)
+                            }
+                        }
+                        
                         guard let httpResponse = response as? HTTPURLResponse,
                               (200...299).contains(httpResponse.statusCode) else {
                             continuation.resume(throwing: DownloaderError.httpError)
