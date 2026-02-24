@@ -437,8 +437,6 @@ struct DriveItemGridCell: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if let localThumbnailURL = localThumbnailURL {
                     KFImage(localThumbnailURL)
-                        // Local path configuration for Kingfisher
-                        .provider(LocalFileImageDataProvider(fileURL: localThumbnailURL))
                         .resizable()
                         .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -525,7 +523,6 @@ struct DriveItemListRow: View {
                 
                 if let localThumbnailURL = localThumbnailURL {
                     KFImage(localThumbnailURL)
-                        .provider(LocalFileImageDataProvider(fileURL: localThumbnailURL))
                         .resizable()
                         .scaledToFill()
                         .frame(width: 44, height: 44)
