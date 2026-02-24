@@ -47,6 +47,14 @@ struct LibraryView: View {
                     // ファイル一覧
                     fileListContent
                 }
+                
+                // 一括ダウンロードプログレスバナー
+                if libraryViewModel.isBulkDownloading {
+                    VStack {
+                        Spacer()
+                        bulkDownloadBanner
+                    }
+                }
             }
             .navigationTitle(libraryViewModel.currentFolderName)
             .navigationBarTitleDisplayMode(.large)
@@ -156,7 +164,11 @@ struct LibraryView: View {
     private var gridView: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemGridCell(item: item, refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger)
+                DriveItemGridCell(
+                    item: item,
+                    refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger,
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId)
+                )
                     .onTapGesture {
                         handleItemTap(item)
                     }
@@ -174,7 +186,11 @@ struct LibraryView: View {
     private var listView: some View {
         LazyVStack(spacing: 8) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemListRow(item: item, refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger)
+                DriveItemListRow(
+                    item: item,
+                    refreshTrigger: libraryViewModel.downloadUpdateTrigger + localRefreshTrigger,
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId)
+                )
                     .onTapGesture {
                         handleItemTap(item)
                     }
@@ -253,6 +269,41 @@ struct LibraryView: View {
             }
             .buttonStyle(.borderedProminent)
         }
+    }
+    
+    /// 一括ダウンロードバナー
+    private var bulkDownloadBanner: some View {
+        HStack(spacing: 16) {
+            ProgressView()
+                .tint(.white)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("一括ダウンロード中...")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                HStack {
+                    ProgressView(
+                        value: Double(libraryViewModel.bulkDownloadCurrent),
+                        total: Double(max(1, libraryViewModel.bulkDownloadTotal))
+                    )
+                    .progressViewStyle(.linear)
+                    .tint(.green)
+                    
+                    Text("\(libraryViewModel.bulkDownloadCurrent) / \(libraryViewModel.bulkDownloadTotal)")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                }
+            }
+        }
+        .padding()
+        .background(Color.black.opacity(0.8))
+        .cornerRadius(12)
+        .padding()
+        .shadow(radius: 10)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.spring(), value: libraryViewModel.isBulkDownloading)
     }
     
     /// ツールバー
@@ -367,6 +418,7 @@ struct LibraryView: View {
 struct DriveItemGridCell: View {
     let item: DriveItem
     let refreshTrigger: Int
+    let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
     
     var body: some View {
@@ -390,7 +442,12 @@ struct DriveItemGridCell: View {
             }
             .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
             .overlay(alignment: .topTrailing) {
-                if isDownloaded {
+                if isBulkDownloading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
+                        .offset(x: 4, y: -4)
+                } else if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
                         .foregroundColor(.green)
@@ -444,6 +501,7 @@ struct DriveItemGridCell: View {
 struct DriveItemListRow: View {
     let item: DriveItem
     let refreshTrigger: Int
+    let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
     
     var body: some View {
@@ -459,7 +517,13 @@ struct DriveItemListRow: View {
                     .foregroundColor(iconColor)
             }
             .overlay(alignment: .topTrailing) {
-                if isDownloaded {
+                if isBulkDownloading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .background(Circle().fill(.white).frame(width: 16, height: 16).shadow(radius: 1))
+                        .offset(x: 2, y: -2)
+                } else if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundColor(.green)
