@@ -13,6 +13,9 @@ struct LibraryView: View {
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
+    @State private var showingBulkDownloadConfirmation = false
+    @State private var selectedFolderForBulk: DriveItem?
+    @State private var localRefreshTrigger = 0
     
     struct ComicSession: Identifiable {
         var id: String { source.id }
@@ -44,6 +47,14 @@ struct LibraryView: View {
                     // ファイル一覧
                     fileListContent
                 }
+                
+                // 一括ダウンロードプログレスバナー
+                if libraryViewModel.isBulkDownloading {
+                    VStack {
+                        Spacer()
+                        bulkDownloadBanner
+                    }
+                }
             }
             .navigationTitle(libraryViewModel.currentFolderName)
             .navigationBarTitleDisplayMode(.large)
@@ -64,6 +75,27 @@ struct LibraryView: View {
                 }
             } message: {
                 Text("サインアウトしますか？")
+            }
+            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
+                Button("キャンセル", role: .cancel) {}
+                Button("ダウンロード") {
+                    if let folder = selectedFolderForBulk {
+                        libraryViewModel.bulkDownloadSeries(
+                            folder: folder,
+                            authorizer: authViewModel.authorizer,
+                            accessToken: authViewModel.accessToken
+                        )
+                    }
+                }
+            } message: {
+                if let folder = selectedFolderForBulk {
+                    Text("\(folder.name)内のアーカイブを一括ダウンロードします。")
+                }
+            }
+            .onChange(of: selectedItem) { _, newValue in
+                if newValue == nil {
+                    localRefreshTrigger += 1
+                }
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定
@@ -132,9 +164,19 @@ struct LibraryView: View {
     private var gridView: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemGridCell(item: item)
+                DriveItemGridCell(
+                    item: item,
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    localComic: libraryViewModel.downloadedComics[item.id]
+                )
                     .onTapGesture {
                         handleItemTap(item)
+                    }
+                    .onLongPressGesture {
+                        if item.isFolder {
+                            selectedFolderForBulk = item
+                            showingBulkDownloadConfirmation = true
+                        }
                     }
             }
         }
@@ -144,9 +186,19 @@ struct LibraryView: View {
     private var listView: some View {
         LazyVStack(spacing: 8) {
             ForEach(libraryViewModel.items) { item in
-                DriveItemListRow(item: item)
+                DriveItemListRow(
+                    item: item,
+                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    localComic: libraryViewModel.downloadedComics[item.id]
+                )
                     .onTapGesture {
                         handleItemTap(item)
+                    }
+                    .onLongPressGesture {
+                        if item.isFolder {
+                            selectedFolderForBulk = item
+                            showingBulkDownloadConfirmation = true
+                        }
                     }
             }
         }
@@ -219,6 +271,41 @@ struct LibraryView: View {
         }
     }
     
+    /// 一括ダウンロードバナー
+    private var bulkDownloadBanner: some View {
+        HStack(spacing: 16) {
+            ProgressView()
+                .tint(.white)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("一括ダウンロード中...")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                HStack {
+                    ProgressView(
+                        value: Double(libraryViewModel.bulkDownloadCurrent),
+                        total: Double(max(1, libraryViewModel.bulkDownloadTotal))
+                    )
+                    .progressViewStyle(.linear)
+                    .tint(.green)
+                    
+                    Text("\(libraryViewModel.bulkDownloadCurrent) / \(libraryViewModel.bulkDownloadTotal)")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                }
+            }
+        }
+        .padding()
+        .background(Color.black.opacity(0.8))
+        .cornerRadius(12)
+        .padding()
+        .shadow(radius: 10)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.spring(), value: libraryViewModel.isBulkDownloading)
+    }
+    
     /// ツールバー
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -239,6 +326,13 @@ struct LibraryView: View {
                     ForEach(LibraryViewModel.ViewMode.allCases, id: \.self) { mode in
                         Label(mode.rawValue, systemImage: mode.icon)
                             .tag(mode)
+                    }
+                }
+                
+                // 並び替えオプション
+                Picker("並び替え", selection: $libraryViewModel.sortOption) {
+                    ForEach(LibraryViewModel.SortOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
                     }
                 }
                 
@@ -330,6 +424,12 @@ struct LibraryView: View {
 /// グリッド表示用セル
 struct DriveItemGridCell: View {
     let item: DriveItem
+    let isBulkDownloading: Bool
+    let localComic: LocalComic?
+    
+    private var isDownloaded: Bool { localComic != nil }
+    private var localThumbnailURL: URL? { localComic?.imagePaths.first }
+    private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
     
     var body: some View {
         VStack(spacing: 8) {
@@ -344,13 +444,44 @@ struct DriveItemGridCell: View {
                         .resizable()
                         .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else if let localThumbnailURL = localThumbnailURL {
+                    KFImage(localThumbnailURL)
+                        .resizable()
+                        .scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     Image(systemName: item.iconName)
                         .font(.system(size: 40))
                         .foregroundColor(iconColor)
                 }
+                
+                // 読了プログレスバー
+                if isDownloaded && readingProgress > 0 {
+                    VStack {
+                        Spacer()
+                        ProgressView(value: readingProgress)
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
+                            .background(Color.white.opacity(0.8))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
             }
             .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+            .overlay(alignment: .topTrailing) {
+                if isBulkDownloading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
+                        .offset(x: 4, y: -4)
+                } else if isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.green)
+                        .background(Circle().fill(.white).frame(width: 18, height: 18))
+                        .offset(x: 4, y: -4)
+                }
+            }
             
             // ファイル名
             Text(item.name)
@@ -385,6 +516,12 @@ struct DriveItemGridCell: View {
 /// リスト表示用行
 struct DriveItemListRow: View {
     let item: DriveItem
+    let isBulkDownloading: Bool
+    let localComic: LocalComic?
+    
+    private var isDownloaded: Bool { localComic != nil }
+    private var localThumbnailURL: URL? { localComic?.imagePaths.first }
+    private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -394,9 +531,32 @@ struct DriveItemListRow: View {
                     .fill(Color(.secondarySystemGroupedBackground))
                     .frame(width: 44, height: 44)
                 
-                Image(systemName: item.iconName)
-                    .font(.title3)
-                    .foregroundColor(iconColor)
+                if let localThumbnailURL = localThumbnailURL {
+                    KFImage(localThumbnailURL)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: item.iconName)
+                        .font(.title3)
+                        .foregroundColor(iconColor)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isBulkDownloading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .background(Circle().fill(.white).frame(width: 16, height: 16).shadow(radius: 1))
+                        .offset(x: 2, y: -2)
+                } else if isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .background(Circle().fill(.white).frame(width: 12, height: 12))
+                        .offset(x: 2, y: -2)
+                }
             }
             
             // ファイル情報
@@ -404,6 +564,15 @@ struct DriveItemListRow: View {
                 Text(item.name)
                     .font(.body)
                     .lineLimit(1)
+                
+                if isDownloaded && readingProgress > 0 {
+                    ProgressView(value: readingProgress)
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                        .frame(height: 4)
+                        .padding(.top, 2)
+                        .padding(.bottom, 2)
+                }
                 
                 HStack {
                     if !item.isFolder {

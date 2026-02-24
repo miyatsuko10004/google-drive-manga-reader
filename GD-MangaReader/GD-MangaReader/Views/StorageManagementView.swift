@@ -8,6 +8,7 @@ import SwiftUI
 struct StorageManagementView: View {
     @State private var viewModel = StorageViewModel()
     @State private var showingDeleteAllAlert = false
+    @State private var showingDeleteCompletedAlert = false
     
     var body: some View {
         List {
@@ -25,6 +26,17 @@ struct StorageManagementView: View {
                 }
                 
                 if !viewModel.comics.isEmpty {
+                    // 読了済み削除ボタン
+                    let completedCount = viewModel.comics.filter { $0.localComic.readingProgress >= 1.0 }.count
+                    if completedCount > 0 {
+                        Button(role: .destructive) {
+                            showingDeleteCompletedAlert = true
+                        } label: {
+                            Label("読了済みのデータを削除 (\(completedCount)件)", systemImage: "trash")
+                        }
+                    }
+                    
+                    // 全削除ボタン
                     Button(role: .destructive) {
                         showingDeleteAllAlert = true
                     } label: {
@@ -82,6 +94,17 @@ struct StorageManagementView: View {
             }
         } message: {
             Text("ダウンロード済みの漫画データをすべて削除しますか？\nこの操作は取り消せません。")
+        }
+        .alert("読了済みのデータを削除", isPresented: $showingDeleteCompletedAlert) {
+            Button("キャンセル", role: .cancel) {}
+            Button("削除", role: .destructive) {
+                Task {
+                    await viewModel.deleteCompletedComics()
+                }
+            }
+        } message: {
+            let count = viewModel.comics.filter { $0.localComic.readingProgress >= 1.0 }.count
+            Text("読了済みの漫画データ(\(count)件)を削除しますか？\nこの操作は取り消せません。")
         }
     }
 }
