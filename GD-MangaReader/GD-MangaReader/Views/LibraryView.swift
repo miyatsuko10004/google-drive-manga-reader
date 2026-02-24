@@ -420,6 +420,7 @@ struct DriveItemGridCell: View {
     let refreshTrigger: Int
     let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
+    @State private var localThumbnailURL: URL? = nil
     
     var body: some View {
         VStack(spacing: 8) {
@@ -431,6 +432,13 @@ struct DriveItemGridCell: View {
                 
                 if let thumbnailURL = item.thumbnailURL {
                     KFImage(thumbnailURL)
+                        .resizable()
+                        .scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else if let localThumbnailURL = localThumbnailURL {
+                    KFImage(localThumbnailURL)
+                        // Local path configuration for Kingfisher
+                        .provider(LocalFileImageDataProvider(fileURL: localThumbnailURL))
                         .resizable()
                         .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -478,8 +486,10 @@ struct DriveItemGridCell: View {
         if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
            existing.status == .completed {
             isDownloaded = true
+            localThumbnailURL = existing.imagePaths.first
         } else {
             isDownloaded = false
+            localThumbnailURL = nil
         }
     }
     
@@ -503,6 +513,7 @@ struct DriveItemListRow: View {
     let refreshTrigger: Int
     let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
+    @State private var localThumbnailURL: URL? = nil
     
     var body: some View {
         HStack(spacing: 12) {
@@ -512,9 +523,18 @@ struct DriveItemListRow: View {
                     .fill(Color(.secondarySystemGroupedBackground))
                     .frame(width: 44, height: 44)
                 
-                Image(systemName: item.iconName)
-                    .font(.title3)
-                    .foregroundColor(iconColor)
+                if let localThumbnailURL = localThumbnailURL {
+                    KFImage(localThumbnailURL)
+                        .provider(LocalFileImageDataProvider(fileURL: localThumbnailURL))
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: item.iconName)
+                        .font(.title3)
+                        .foregroundColor(iconColor)
+                }
             }
             .overlay(alignment: .topTrailing) {
                 if isBulkDownloading {
@@ -568,8 +588,10 @@ struct DriveItemListRow: View {
         if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: item.id),
            existing.status == .completed {
             isDownloaded = true
+            localThumbnailURL = existing.imagePaths.first
         } else {
             isDownloaded = false
+            localThumbnailURL = nil
         }
     }
     
