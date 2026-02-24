@@ -25,6 +25,19 @@ struct StorageManagementView: View {
                 }
                 
                 if !viewModel.comics.isEmpty {
+                    // 読了済み削除ボタン
+                    let completedCount = viewModel.comics.filter { $0.localComic.readingProgress >= 1.0 }.count
+                    if completedCount > 0 {
+                        Button(role: .destructive) {
+                            Task {
+                                await viewModel.deleteCompletedComics()
+                            }
+                        } label: {
+                            Label("読了済みのデータを削除 (\(completedCount)件)", systemImage: "trash")
+                        }
+                    }
+                    
+                    // 全削除ボタン
                     Button(role: .destructive) {
                         showingDeleteAllAlert = true
                     } label: {

@@ -101,4 +101,16 @@ final class StorageViewModel {
             errorMessage = "全削除に失敗しました: \(error.localizedDescription)"
         }
     }
+    
+    func deleteCompletedComics() async {
+        do {
+            let completedItems = comics.filter { $0.localComic.readingProgress >= 1.0 }
+            for item in completedItems {
+                try storageService.deleteComic(item.localComic)
+            }
+            await loadData()
+        } catch {
+            errorMessage = "読了済みデータの削除に失敗しました: \(error.localizedDescription)"
+        }
+    }
 }

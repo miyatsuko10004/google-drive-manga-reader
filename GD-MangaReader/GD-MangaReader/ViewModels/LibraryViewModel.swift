@@ -57,6 +57,24 @@ final class LibraryViewModel {
         folderPath.last?.name ?? "manga"
     }
     
+    // MARK: - Sorting and View Mode
+    
+    /// ソートオプション
+    enum SortOption: String, CaseIterable, Identifiable {
+        case nameAsc = "名前 (A-Z)"
+        case nameDesc = "名前 (Z-A)"
+        case dateNewest = "追加日 (新しい順)"
+        case dateOldest = "追加日 (古い順)"
+        
+        var id: String { self.rawValue }
+    }
+    
+    var sortOption: SortOption = .nameAsc {
+        didSet {
+            sortItems()
+        }
+    }
+    
     /// 表示モード
     enum ViewMode: String, CaseIterable {
         case grid = "グリッド"
@@ -115,6 +133,7 @@ final class LibraryViewModel {
                 pageToken: nil
             )
             items = result.items
+            sortItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -136,6 +155,7 @@ final class LibraryViewModel {
                 pageToken: nextPageToken
             )
             items.append(contentsOf: result.items)
+            sortItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -179,6 +199,22 @@ final class LibraryViewModel {
         currentFolderId = try? await driveService.fetchRootFolderId()
         items = []
         await loadFiles()
+    }
+    
+    /// アイテムをソートする
+    private func sortItems() {
+        items.sort { lhs, rhs in
+            switch sortOption {
+            case .nameAsc:
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            case .nameDesc:
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedDescending
+            case .dateNewest:
+                return (lhs.modifiedTime ?? Date.distantPast) > (rhs.modifiedTime ?? Date.distantPast)
+            case .dateOldest:
+                return (lhs.modifiedTime ?? Date.distantPast) < (rhs.modifiedTime ?? Date.distantPast)
+            }
+        }
     }
     
     /// リフレッシュ

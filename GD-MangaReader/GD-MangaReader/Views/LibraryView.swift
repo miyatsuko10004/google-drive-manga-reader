@@ -329,6 +329,13 @@ struct LibraryView: View {
                     }
                 }
                 
+                // 並び替えオプション
+                Picker("並び替え", selection: $libraryViewModel.sortOption) {
+                    ForEach(LibraryViewModel.SortOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                
                 Divider()
                 
                 // ユーザー情報
@@ -421,6 +428,7 @@ struct DriveItemGridCell: View {
     let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
     @State private var localThumbnailURL: URL? = nil
+    @State private var readingProgress: Double = 0.0
     
     var body: some View {
         VStack(spacing: 8) {
@@ -444,6 +452,18 @@ struct DriveItemGridCell: View {
                     Image(systemName: item.iconName)
                         .font(.system(size: 40))
                         .foregroundColor(iconColor)
+                }
+                
+                // 読了プログレスバー
+                if isDownloaded && readingProgress > 0 {
+                    VStack {
+                        Spacer()
+                        ProgressView(value: readingProgress)
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
+                            .background(Color.white.opacity(0.8))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
             .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
@@ -485,9 +505,11 @@ struct DriveItemGridCell: View {
            existing.status == .completed {
             isDownloaded = true
             localThumbnailURL = existing.imagePaths.first
+            readingProgress = existing.readingProgress
         } else {
             isDownloaded = false
             localThumbnailURL = nil
+            readingProgress = 0.0
         }
     }
     
@@ -512,6 +534,7 @@ struct DriveItemListRow: View {
     let isBulkDownloading: Bool
     @State private var isDownloaded: Bool = false
     @State private var localThumbnailURL: URL? = nil
+    @State private var readingProgress: Double = 0.0
     
     var body: some View {
         HStack(spacing: 12) {
@@ -555,6 +578,15 @@ struct DriveItemListRow: View {
                     .font(.body)
                     .lineLimit(1)
                 
+                if isDownloaded && readingProgress > 0 {
+                    ProgressView(value: readingProgress)
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                        .frame(height: 4)
+                        .padding(.top, 2)
+                        .padding(.bottom, 2)
+                }
+                
                 HStack {
                     if !item.isFolder {
                         Text(item.formattedSize)
@@ -586,9 +618,11 @@ struct DriveItemListRow: View {
            existing.status == .completed {
             isDownloaded = true
             localThumbnailURL = existing.imagePaths.first
+            readingProgress = existing.readingProgress
         } else {
             isDownloaded = false
             localThumbnailURL = nil
+            readingProgress = 0.0
         }
     }
     
