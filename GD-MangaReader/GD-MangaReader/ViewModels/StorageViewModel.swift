@@ -86,7 +86,9 @@ final class StorageViewModel {
     
     func deleteComic(_ item: ComicStorageItem) async {
         do {
-            try storageService.deleteComic(item.localComic)
+            try await Task.detached {
+                try LocalStorageService.shared.deleteComic(item.localComic)
+            }.value
             await loadData()
         } catch {
             errorMessage = "削除に失敗しました: \(error.localizedDescription)"
@@ -95,7 +97,9 @@ final class StorageViewModel {
     
     func deleteAll() async {
         do {
-            try storageService.clearAllComics()
+            try await Task.detached {
+                try LocalStorageService.shared.clearAllComics()
+            }.value
             await loadData()
         } catch {
             errorMessage = "全削除に失敗しました: \(error.localizedDescription)"
@@ -105,9 +109,11 @@ final class StorageViewModel {
     func deleteCompletedComics() async {
         do {
             let completedItems = comics.filter { $0.localComic.readingProgress >= 1.0 }
-            for item in completedItems {
-                try storageService.deleteComic(item.localComic)
-            }
+            try await Task.detached {
+                for item in completedItems {
+                    try LocalStorageService.shared.deleteComic(item.localComic)
+                }
+            }.value
             await loadData()
         } catch {
             errorMessage = "読了済みデータの削除に失敗しました: \(error.localizedDescription)"
