@@ -35,7 +35,7 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            let _ = print("🔍 [CONTENT] isSignedIn = \(authViewModel.isSignedIn)")
+            _ = print("🔍 [CONTENT] isSignedIn = \(authViewModel.isSignedIn)")
             if authViewModel.isSignedIn {
                 LibraryView()
             } else {
