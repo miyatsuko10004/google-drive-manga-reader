@@ -11,7 +11,7 @@ struct DriveItemListView: View {
             ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemListRow(
                     item: item,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    isBulkDownloading: (BulkDownloadManager.shared.isDownloading && item.id == BulkDownloadManager.shared.targetFolderId),
                     localComic: libraryViewModel.downloadedComics[item.id],
                     folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )

@@ -80,6 +80,7 @@ struct ReaderView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .ignoresSafeArea()
         .environment(\.layoutDirection, viewModel.isRightToLeft ? .rightToLeft : .leftToRight)
     }
     
@@ -94,7 +95,8 @@ struct ReaderView: View {
                         ZoomableImageView(
                             source: source,
                             index: index,
-                            geometry: geometry
+                            geometry: geometry,
+                            currentPage: viewModel.currentPage
                         )
                         .id(index)
                     }
@@ -115,7 +117,8 @@ struct ReaderView: View {
         ZoomableImageView(
             source: source,
             index: index,
-            geometry: geometry
+            geometry: geometry,
+            currentPage: viewModel.currentPage
         )
     }
     
@@ -131,7 +134,8 @@ struct ReaderView: View {
                     source: source,
                     index: leftIndex,
                     geometry: geometry,
-                    isHalfWidth: true
+                    isHalfWidth: true,
+                    currentPage: viewModel.currentPage
                 )
             } else {
                 Color.black
@@ -143,7 +147,8 @@ struct ReaderView: View {
                     source: source,
                     index: rightIndex,
                     geometry: geometry,
-                    isHalfWidth: true
+                    isHalfWidth: true,
+                    currentPage: viewModel.currentPage
                 )
             } else {
                 Color.black
@@ -443,6 +448,7 @@ struct ZoomableImageView: View {
     let index: Int
     let geometry: GeometryProxy
     var isHalfWidth: Bool = false
+    var currentPage: Int
     
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -458,10 +464,20 @@ struct ZoomableImageView: View {
         AsyncImageView(source: source, index: index)
             .aspectRatio(contentMode: .fit)
             .frame(width: imageWidth, height: geometry.size.height)
+            .clipped()
+            .contentShape(Rectangle())
             .scaleEffect(scale)
             .offset(offset)
             .gesture(magnificationGesture)
             .gesture(dragGesture, including: scale > 1.0 ? .all : .subviews)
+            .onChange(of: currentPage) { _, _ in
+                if scale > 1.0 || offset != .zero {
+                    scale = 1.0
+                    lastScale = 1.0
+                    offset = .zero
+                    lastOffset = .zero
+                }
+            }
             .onTapGesture(count: 2) {
                 withAnimation(.spring()) {
                     if scale > 1.0 {

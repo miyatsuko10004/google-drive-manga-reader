@@ -1,0 +1,23 @@
+disabled_rules: # 無効化するルール
+  - trailing_whitespace
+  - line_length
+  - function_body_length
+  - type_body_length
+  - identifier_name
+  - multiple_closures_with_trailing_closure
+  - nesting
+  
+opt_in_rules: # 有効化するルール
+  - empty_count
+  - force_unwrapping
+  - closure_spacing
+
+included: # チェック対象
+  - GD-MangaReader/GD-MangaReader
+
+excluded: # チェック対象外
+  - Pods
+  - GD-MangaReader/Pods
+
+force_unwrapping:
+  severity: warning # エラーではなく警告にする

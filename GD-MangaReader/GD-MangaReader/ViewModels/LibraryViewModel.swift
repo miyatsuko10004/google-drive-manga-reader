@@ -85,20 +85,6 @@ final class LibraryViewModel {
     /// ダウンロード完了時のUI更新トリガー
     private(set) var downloadUpdateTrigger: Int = 0
     
-    // MARK: - Bulk Download Progress State
-    
-    /// 一括ダウンロード実行中フラグ
-    private(set) var isBulkDownloading: Bool = false
-    
-    /// 現在ダウンロード中の件数 (1-based index)
-    private(set) var bulkDownloadCurrent: Int = 0
-    
-    /// 一括ダウンロードする合計件数
-    private(set) var bulkDownloadTotal: Int = 0
-    
-    /// 一括ダウンロードの対象フォルダID (UI表示用)
-    private(set) var bulkDownloadTargetFolderId: String?
-    
     /// 次ページトークン（ページネーション用）
     private var nextPageToken: String?
     
@@ -333,70 +319,28 @@ final class LibraryViewModel {
     
     /// 一括ダウンロード
     func bulkDownloadSeries(folder: DriveItem, authorizer: (any GTMSessionFetcherAuthorizer)?, accessToken: String?) {
-        // 多重起動防止
-        guard !isBulkDownloading else { return }
-        
-        // Task起動前にフラグを立てることで、連続タップによる複数実行（競合）を防止
-        isBulkDownloading = true
-        
-        Task {
-            defer {
-                resetBulkDownloadState()
-            }
-            
-            bulkDownloadTargetFolderId = folder.id
-            bulkDownloadCurrent = 0
-            bulkDownloadTotal = 0
-            
-            do {
-                var allItems: [DriveItem] = []
-                var token: String? = nil
-                repeat {
-                    let result = try await driveService.listFiles(in: folder.id, pageToken: token)
-                    allItems.append(contentsOf: result.items)
-                    token = result.nextPageToken
-                } while token != nil
-                
-                let archives = allItems.filter { $0.isArchive }
-                
-                // 未ダウンロードのものだけ抽出
-                let pendingArchives = archives.filter { archive in
-                    if let existing = try? LocalStorageService.shared.findComic(byDriveFileId: archive.id),
-                       existing.status == .completed {
-                        return false
-                    }
-                    return true
-                }
-                
-                bulkDownloadTotal = pendingArchives.count
-                
-                if bulkDownloadTotal == 0 {
-                    // 全てダウンロード済み
-                    return
-                }
-                
-                for archive in pendingArchives {
-                    bulkDownloadCurrent += 1
-                    
-                    let downloader = DownloaderViewModel(driveService: driveService)
-                    downloader.configure(with: authorizer, accessToken: accessToken)
-                    _ = await downloader.downloadAndExtract(item: archive)
-                    
-                    self.refreshDownloadedComics()
-                    self.downloadUpdateTrigger += 1
-                }
-            } catch {
-                errorMessage = "一括ダウンロード中にエラーが発生しました: \(error.localizedDescription)"
-                print("Bulk download error: \(error)")
+        let manager = BulkDownloadManager.shared
+        manager.onDownloadUpdate = { [weak self] in
+            Task { @MainActor in
+                self?.refreshDownloadedComics()
+                self?.downloadUpdateTrigger += 1
             }
         }
-    }
-    
-    private func resetBulkDownloadState() {
-        isBulkDownloading = false
-        bulkDownloadCurrent = 0
-        bulkDownloadTotal = 0
-        bulkDownloadTargetFolderId = nil
+        
+        manager.downloadSeries(
+            folder: folder,
+            driveService: driveService,
+            authorizer: authorizer,
+            accessToken: accessToken,
+            onComplete: {
+                // Handle completion
+            },
+            onError: { [weak self] error in
+                Task { @MainActor in
+                    self?.errorMessage = "一括ダウンロード中にエラーが発生しました: \(error.localizedDescription)"
+                }
+            }
+        )
     }
 }
 
