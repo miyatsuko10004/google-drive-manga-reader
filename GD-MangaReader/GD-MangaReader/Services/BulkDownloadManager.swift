@@ -10,19 +10,16 @@ import SwiftUI
 /// 一括ダウンロード全体の進行状態を管理
 @MainActor
 @Observable
+@Observable
 final class BulkDownloadManager {
-    static let shared = BulkDownloadManager()
-    
-    // MARK: - Properties
     
     private(set) var isDownloading: Bool = false
     private(set) var currentCount: Int = 0
     private(set) var totalCount: Int = 0
     private(set) var targetFolderId: String?
     
-    var onDownloadUpdate: (() -> Void)?
     
-    private init() {}
+    init() {}
     
     // MARK: - Methods
     
@@ -75,17 +72,32 @@ final class BulkDownloadManager {
                     return
                 }
                 
-                // 4. ダウンロード実行
-                for archive in pendingArchives {
-                    currentCount += 1
+                // 4. ダウンロード実行 (並列処理)
+                await withTaskGroup(of: Void.self) { group in
+                    let maxConcurrentTasks = 3 // 同時ダウンロード数
+                    var activeTasks = 0
                     
-                    let downloader = DownloaderViewModel(driveService: driveService)
-                    downloader.configure(with: authorizer, accessToken: accessToken)
+                    for archive in pendingArchives {
+                        if activeTasks >= maxConcurrentTasks {
+                            await group.next()
+                            activeTasks -= 1
+                        }
+                        
+                        activeTasks += 1
+                        group.addTask {
+                            let downloader = DownloaderViewModel(driveService: driveService)
+                            downloader.configure(with: authorizer, accessToken: accessToken)
+                            _ = await downloader.downloadAndExtract(item: archive)
+                            
+                            await MainActor.run {
+                                self.currentCount += 1
+                                self.onDownloadUpdate?()
+                            }
+                        }
+                    }
                     
-                    // 個別のダウンロード＆解凍実行
-                    _ = await downloader.downloadAndExtract(item: archive)
-                    
-                    onDownloadUpdate?()
+                    // 残りのタスクを待機
+                    for await _ in group {}
                 }
                 
                 onComplete()

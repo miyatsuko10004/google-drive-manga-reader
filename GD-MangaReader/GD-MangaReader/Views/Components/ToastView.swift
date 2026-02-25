@@ -33,7 +33,7 @@ enum ToastType {
 
 struct ToastModifier: ViewModifier {
     @Binding var toast: ToastData?
-    @State private var workItem: DispatchWorkItem?
+    @State private var task: Task<Void, Swift.Error>?
     
     func body(content: Content) -> some View {
         content
@@ -96,15 +96,15 @@ struct ToastModifier: ViewModifier {
     private func showToast() {
         guard toast != nil else { return }
         
-        workItem?.cancel()
+        task?.cancel()
         
-        let task = DispatchWorkItem {
-            dismissToast()
+        task = Task {
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                dismissToast()
+            }
         }
-        
-        workItem = task
-        // ToastType によって表示時間を変えることも可能
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: task)
     }
     
     private func dismissToast() {
@@ -112,8 +112,8 @@ struct ToastModifier: ViewModifier {
             toast = nil
         }
         
-        workItem?.cancel()
-        workItem = nil
+        task?.cancel()
+        task = nil
     }
 }
 

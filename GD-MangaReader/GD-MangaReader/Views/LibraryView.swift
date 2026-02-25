@@ -10,6 +10,7 @@ import Kingfisher
 struct LibraryView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @State private var libraryViewModel = LibraryViewModel()
+    @State private var bulkDownloadManager = BulkDownloadManager()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
@@ -49,7 +50,7 @@ struct LibraryView: View {
                 }
                 
                 // 一括ダウンロードプログレスバナー
-                if BulkDownloadManager.shared.isDownloading {
+                if bulkDownloadManager.isDownloading {
                     VStack {
                         Spacer()
                         bulkDownloadBanner
@@ -82,10 +83,17 @@ struct LibraryView: View {
                 Button("キャンセル", role: .cancel) {}
                 Button("ダウンロード") {
                     if let folder = selectedFolderForBulk {
-                        libraryViewModel.bulkDownloadSeries(
+                        bulkDownloadManager.downloadSeries(
                             folder: folder,
+                            driveService: libraryViewModel.driveService,
                             authorizer: authViewModel.authorizer,
-                            accessToken: authViewModel.accessToken
+                            accessToken: authViewModel.accessToken,
+                            onComplete: {
+                                toast = ToastData(title: "ダウンロード完了", message: "\(folder.name) のダウンロードが完了しました", type: .success)
+                            },
+                            onError: { error in
+                                toast = ToastData(title: "ダウンロード失敗", message: error.localizedDescription, type: .error)
+                            }
                         )
                         toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
                     }
@@ -161,6 +169,7 @@ struct LibraryView: View {
                     DriveItemGridView(
                         gridColumns: gridColumns,
                         libraryViewModel: libraryViewModel,
+                        bulkDownloadManager: bulkDownloadManager,
                         selectedFolderForBulk: $selectedFolderForBulk,
                         showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
                         onItemTap: handleItemTap
@@ -168,6 +177,7 @@ struct LibraryView: View {
                 case .list:
                     DriveItemListView(
                         libraryViewModel: libraryViewModel,
+                        bulkDownloadManager: bulkDownloadManager,
                         selectedFolderForBulk: $selectedFolderForBulk,
                         showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
                         onItemTap: handleItemTap
@@ -283,13 +293,13 @@ struct LibraryView: View {
                 
                 HStack {
                     ProgressView(
-                        value: Double(BulkDownloadManager.shared.currentCount),
-                        total: Double(max(1, BulkDownloadManager.shared.totalCount))
+                        value: Double(bulkDownloadManager.currentCount),
+                        total: Double(max(1, bulkDownloadManager.totalCount))
                     )
                     .progressViewStyle(.linear)
                     .tint(.green)
                     
-                    Text("\(BulkDownloadManager.shared.currentCount) / \(BulkDownloadManager.shared.totalCount)")
+                    Text("\(bulkDownloadManager.currentCount) / \(bulkDownloadManager.totalCount)")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.8))
                 }
@@ -301,7 +311,7 @@ struct LibraryView: View {
         .padding()
         .shadow(radius: 10)
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(), value: BulkDownloadManager.shared.isDownloading)
+        .animation(.spring(), value: bulkDownloadManager.isDownloading)
     }
     
     /// ツールバー
