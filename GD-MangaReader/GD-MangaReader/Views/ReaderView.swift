@@ -383,8 +383,14 @@ final class ReaderViewModel {
     
     var pageIndices: [Int] {
         if isSpreadMode {
-            // 見開きモード：2ページずつ
-            return stride(from: 0, to: pageCount, by: 2).map { $0 }
+            // 見開きモード：表紙（インデックス0）は単独、以降2ページずつ
+            var indices: [Int] = [0]
+            var current = 1
+            while current < pageCount {
+                indices.append(current)
+                current += 2
+            }
+            return indices
         } else {
             return Array(0..<pageCount)
         }
@@ -392,15 +398,17 @@ final class ReaderViewModel {
     
     func goToNextPage() {
         if currentPage < pageCount - 1 {
-            currentPage += isSpreadMode ? 2 : 1
-            currentPage = min(currentPage, pageCount - 1)
+            let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
+            let newIndex = min(pageIndices.count - 1, currentIndex + 1)
+            currentPage = pageIndices[newIndex]
         }
     }
     
     func goToPreviousPage() {
         if currentPage > 0 {
-            currentPage -= isSpreadMode ? 2 : 1
-            currentPage = max(currentPage, 0)
+            let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
+            let newIndex = max(0, currentIndex - 1)
+            currentPage = pageIndices[newIndex]
         }
     }
     
@@ -410,16 +418,20 @@ final class ReaderViewModel {
     
     /// 見開きページのインデックスを取得（左、右）
     func getSpreadIndices(for baseIndex: Int) -> (Int?, Int?) {
+        // 表紙（0）は常に単独で中央（右側に配置して左を空けるなど実装依存）
+        if baseIndex == 0 {
+            return (nil, 0)
+        }
+        
+        let targetIndex = baseIndex
+        let nextIndex = targetIndex + 1 < pageCount ? targetIndex + 1 : nil
+        
         if isRightToLeft {
-            // 右から左：右ページが先
-            let rightIndex = baseIndex
-            let leftIndex = baseIndex + 1 < pageCount ? baseIndex + 1 : nil
-            return (leftIndex, rightIndex < pageCount ? rightIndex : nil)
+            // 日本の漫画（右開き）：若い数字が右、次の数字が左
+            return (nextIndex, targetIndex)
         } else {
-            // 左から右：左ページが先
-            let leftIndex = baseIndex
-            let rightIndex = baseIndex + 1 < pageCount ? baseIndex + 1 : nil
-            return (leftIndex < pageCount ? leftIndex : nil, rightIndex)
+            // アメコミ等（左開き）：若い数字が左、次の数字が右
+            return (targetIndex, nextIndex)
         }
     }
 }

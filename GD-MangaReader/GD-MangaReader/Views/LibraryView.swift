@@ -61,11 +61,12 @@ struct LibraryView: View {
             .toolbar {
                 toolbarContent
             }
+            .searchable(text: $libraryViewModel.searchText, prompt: "作品・フォルダを検索")
             .refreshable {
                 await libraryViewModel.refresh()
             }
             .task {
-                await libraryViewModel.configure(with: authViewModel.authorizer)
+                libraryViewModel.configure(with: authViewModel.authorizer)
                 await libraryViewModel.loadFiles()
             }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
@@ -138,6 +139,15 @@ struct LibraryView: View {
     private var fileListContent: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                // 最近読んだ作品（ルート階層でのみ表示）
+                if libraryViewModel.folderPath.isEmpty && !libraryViewModel.recentComics.isEmpty {
+                    RecentComicsShelfView(
+                        readingSession: $readingSession,
+                        recentComics: libraryViewModel.recentComics
+                    )
+                    Divider().padding(.vertical, 8)
+                }
+                
                 // パンくずリスト
                 if !libraryViewModel.folderPath.isEmpty {
                     breadcrumbView
@@ -146,9 +156,20 @@ struct LibraryView: View {
                 // アイテム一覧
                 switch libraryViewModel.viewMode {
                 case .grid:
-                    gridView
+                    DriveItemGridView(
+                        gridColumns: gridColumns,
+                        libraryViewModel: libraryViewModel,
+                        selectedFolderForBulk: $selectedFolderForBulk,
+                        showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
+                        onItemTap: handleItemTap
+                    )
                 case .list:
-                    listView
+                    DriveItemListView(
+                        libraryViewModel: libraryViewModel,
+                        selectedFolderForBulk: $selectedFolderForBulk,
+                        showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
+                        onItemTap: handleItemTap
+                    )
                 }
                 
                 // さらに読み込み
@@ -160,63 +181,7 @@ struct LibraryView: View {
         }
     }
     
-    /// グリッド表示
-    private var gridView: some View {
-        LazyVGrid(columns: gridColumns, spacing: 16) {
-            ForEach(libraryViewModel.items) { item in
-                DriveItemGridCell(
-                    item: item,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
-                    localComic: libraryViewModel.downloadedComics[item.id],
-                    folderThumbnails: libraryViewModel.folderThumbnails[item.id]
-                )
-                    .task {
-                        if item.isFolder {
-                            await libraryViewModel.fetchThumbnails(for: item)
-                        }
-                    }
-                    .onTapGesture {
-                        handleItemTap(item)
-                    }
-                    .onLongPressGesture {
-                        if item.isFolder {
-                            selectedFolderForBulk = item
-                            showingBulkDownloadConfirmation = true
-                        }
-                    }
-            }
-        }
-    }
     
-    /// リスト表示
-    private var listView: some View {
-        LazyVStack(spacing: 8) {
-            ForEach(libraryViewModel.items) { item in
-                DriveItemListRow(
-                    item: item,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
-                    localComic: libraryViewModel.downloadedComics[item.id],
-                    folderThumbnails: libraryViewModel.folderThumbnails[item.id]
-                )
-                    .task {
-                        if item.isFolder {
-                            await libraryViewModel.fetchThumbnails(for: item)
-                        }
-                    }
-                    .onTapGesture {
-                        handleItemTap(item)
-                    }
-                    .onLongPressGesture {
-                        if item.isFolder {
-                            selectedFolderForBulk = item
-                            showingBulkDownloadConfirmation = true
-                        }
-                    }
-            }
-        }
-    }
-    
-    /// パンくずリスト
     private var breadcrumbView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {

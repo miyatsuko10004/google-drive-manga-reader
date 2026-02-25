@@ -55,10 +55,23 @@ final class LibraryViewModel {
     /// エラーメッセージ
     private(set) var errorMessage: String?
     
+    /// 検索テキスト
+    var searchText: String = "" {
+        didSet { updateFilteredItems() }
+    }
+    
+    /// フィルタ・ソート済みの表示用アイテム一覧
+    private(set) var filteredItems: [DriveItem] = []
+    
     // MARK: - Local Cache
     
     /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
-    private(set) var downloadedComics: [String: LocalComic] = [:]
+    private(set) var downloadedComics: [String: LocalComic] = [:] {
+        didSet { updateRecentComics() }
+    }
+    
+    /// 最近読んだコミック（キャッシュから抽出して降順でソート、最大5件）
+    private(set) var recentComics: [LocalComic] = []
     
     /// フォルダのサムネイルURLキャッシュ (LRU管理, 上限500件)
     private(set) var folderThumbnails = LRUCache<String, [URL]>(capacity: 500)
@@ -112,9 +125,7 @@ final class LibraryViewModel {
     }
     
     var sortOption: SortOption = .nameAsc {
-        didSet {
-            sortItems()
-        }
+        didSet { updateFilteredItems() }
     }
     
     /// 表示モード
@@ -134,11 +145,7 @@ final class LibraryViewModel {
     
     // MARK: - Dependencies
     
-    // MARK: - Dependencies
-    
     let driveService: DriveService
-    
-    // MARK: - Initialization
     
     // MARK: - Initialization
     
@@ -152,8 +159,36 @@ final class LibraryViewModel {
     
     // MARK: - Methods
     
+    /// 最新のアイテム、検索テキスト、ソート順に応じたフィルタリング結果を更新
+    private func updateFilteredItems() {
+        let sorted = items.sorted {
+            switch sortOption {
+            case .nameAsc: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            case .nameDesc: return $0.name.localizedStandardCompare($1.name) == .orderedDescending
+            case .dateNewest: return ($0.createdTime ?? .distantPast) > ($1.createdTime ?? .distantPast)
+            case .dateOldest: return ($0.createdTime ?? .distantPast) < ($1.createdTime ?? .distantPast)
+            }
+        }
+        
+        if searchText.isEmpty {
+            filteredItems = sorted
+        } else {
+            filteredItems = sorted.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
+    
+    /// 最近読んだコミックリストを更新
+    private func updateRecentComics() {
+        recentComics = Array(
+            downloadedComics.values
+                .filter { $0.lastReadAt != nil }
+                .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
+                .prefix(5)
+        )
+    }
+    
     /// DriveServiceに認証情報を設定
-    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?) {
+    func configure(with authorizer: (any GTMSessionFetcherAuthorizer)?) {
         guard let authorizer = authorizer else { return }
         driveService.configure(with: authorizer)
     }
@@ -177,7 +212,7 @@ final class LibraryViewModel {
                 pageToken: nil
             )
             items = result.items
-            sortItems()
+            updateFilteredItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -242,7 +277,7 @@ final class LibraryViewModel {
                 pageToken: nextPageToken
             )
             items.append(contentsOf: result.items)
-            sortItems()
+            updateFilteredItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -259,6 +294,7 @@ final class LibraryViewModel {
         
         currentFolderId = folder.id
         items = []
+        updateFilteredItems()
         await loadFiles()
     }
     
@@ -276,6 +312,7 @@ final class LibraryViewModel {
         }
         
         items = []
+        updateFilteredItems()
         await loadFiles()
     }
     
@@ -285,23 +322,8 @@ final class LibraryViewModel {
         // ルートIDを再取得（キャッシュされているはず）
         currentFolderId = try? await driveService.fetchRootFolderId()
         items = []
+        updateFilteredItems()
         await loadFiles()
-    }
-    
-    /// アイテムをソートする
-    private func sortItems() {
-        items.sort { lhs, rhs in
-            switch sortOption {
-            case .nameAsc:
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            case .nameDesc:
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedDescending
-            case .dateNewest:
-                return (lhs.modifiedTime ?? Date.distantPast) > (rhs.modifiedTime ?? Date.distantPast)
-            case .dateOldest:
-                return (lhs.modifiedTime ?? Date.distantPast) < (rhs.modifiedTime ?? Date.distantPast)
-            }
-        }
     }
     
     /// リフレッシュ
@@ -310,7 +332,7 @@ final class LibraryViewModel {
     }
     
     /// 一括ダウンロード
-    func bulkDownloadSeries(folder: DriveItem, authorizer: (any GTMFetcherAuthorizationProtocol)?, accessToken: String?) {
+    func bulkDownloadSeries(folder: DriveItem, authorizer: (any GTMSessionFetcherAuthorizer)?, accessToken: String?) {
         // 多重起動防止
         guard !isBulkDownloading else { return }
         
