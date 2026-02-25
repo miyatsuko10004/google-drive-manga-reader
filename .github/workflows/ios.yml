@@ -9,14 +9,11 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: macos-14 # Use macOS 14 for Xcode 15+ support
+    runs-on: macos-15 # Upgrade to macOS 15 for Xcode 16+ (Format 77)
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
       - name: Install XcodeGen
         run: brew install xcodegen
