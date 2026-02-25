@@ -37,8 +37,8 @@ final class AuthViewModel {
     // MARK: - Computed Properties
     
     /// Drive APIサービス用のauthorizer
-    var authorizer: GTMFetcherAuthorizationProtocol? {
-        currentUser?.fetcherAuthorizer
+    var authorizer: (any GTMSessionFetcherAuthorizer)? {
+        currentUser?.fetcherAuthorizer as? any GTMSessionFetcherAuthorizer
     }
     
     /// アクセストークン（ダウンロード認証用）

@@ -27,7 +27,7 @@ final class DriveService {
     // MARK: - Configuration
     
     /// 認証情報を設定
-    func configure(with authorizer: any GTMFetcherAuthorizationProtocol) {
+    func configure(with authorizer: any GTMSessionFetcherAuthorizer) {
         service.authorizer = authorizer
     }
     

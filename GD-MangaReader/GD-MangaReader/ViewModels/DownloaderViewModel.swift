@@ -68,7 +68,7 @@ final class DownloaderViewModel {
     // MARK: - Public Methods
     
     /// DriveServiceに認証情報を設定
-    func configure(with authorizer: (any GTMFetcherAuthorizationProtocol)?, accessToken: String?) {
+    func configure(with authorizer: (any GTMSessionFetcherAuthorizer)?, accessToken: String?) {
         guard let authorizer = authorizer else { return }
         driveService.configure(with: authorizer)
         driveService.setAccessToken(accessToken)
