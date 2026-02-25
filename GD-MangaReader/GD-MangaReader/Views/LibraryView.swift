@@ -89,14 +89,29 @@ struct LibraryView: View {
                             authorizer: authViewModel.authorizer,
                             accessToken: authViewModel.accessToken,
                             onComplete: { failedCount in
-                                if failedCount == 0 {
-                                    toast = ToastData(title: "ダウンロード完了", message: "\(folder.name) のダウンロードが完了しました", type: .success)
-                                } else {
-                                    toast = ToastData(title: "ダウンロード完了 (\(failedCount)件失敗)", message: "\(folder.name) のダウンロードが完了しましたが、一部失敗しました", type: .error)
+                                Task { @MainActor in
+                                    if failedCount == 0 {
+                                        toast = ToastData(
+                                            title: "ダウンロード完了",
+                                            message: "\(folder.name) のダウンロードが完了しました",
+                                            type: .success
+                                        )
+                                    } else {
+                                        let title = "ダウンロード完了 (\(failedCount)件失敗)"
+                                        let message = "\(folder.name) のダウンロードが完了しましたが、"
+                                            + "一部失敗しました"
+                                        toast = ToastData(title: title, message: message, type: .error)
+                                    }
                                 }
                             },
                             onError: { error in
-                                toast = ToastData(title: "ダウンロード失敗", message: error.localizedDescription, type: .error)
+                                Task { @MainActor in
+                                    toast = ToastData(
+                                        title: "ダウンロード失敗",
+                                        message: error.localizedDescription,
+                                        type: .error
+                                    )
+                                }
                             }
                         )
                         toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
