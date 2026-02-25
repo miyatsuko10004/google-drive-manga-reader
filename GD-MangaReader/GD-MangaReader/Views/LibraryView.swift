@@ -228,9 +228,8 @@ struct LibraryView: View {
     private var autoLoadMoreView: some View {
         Color.clear
             .frame(height: 20)
-            .id(UUID()) // 常に再描画させて発火を促す
             .onAppear {
-                if libraryViewModel.hasMoreItems {
+                if libraryViewModel.hasMoreItems && !libraryViewModel.isLoading {
                     Task { await libraryViewModel.loadMoreFiles() }
                 }
             }
