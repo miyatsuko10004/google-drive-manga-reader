@@ -55,10 +55,40 @@ final class LibraryViewModel {
     /// エラーメッセージ
     private(set) var errorMessage: String?
     
+    /// 検索テキスト
+    var searchText: String = ""
+    
+    /// フィルタ・ソート済みの表示用アイテム一覧
+    var filteredItems: [DriveItem] {
+        let sorted = items.sorted {
+            switch sortOption {
+            case .nameAsc: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            case .nameDesc: return $0.name.localizedStandardCompare($1.name) == .orderedDescending
+            case .dateNewest: return ($0.createdTime ?? .distantPast) > ($1.createdTime ?? .distantPast)
+            case .dateOldest: return ($0.createdTime ?? .distantPast) < ($1.createdTime ?? .distantPast)
+            }
+        }
+        
+        if searchText.isEmpty {
+            return sorted
+        } else {
+            return sorted.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
+    
     // MARK: - Local Cache
     
     /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
     private(set) var downloadedComics: [String: LocalComic] = [:]
+    
+    /// 最近読んだコミック（キャッシュから抽出して降順でソート、最大5件）
+    var recentComics: [LocalComic] {
+        downloadedComics.values
+            .filter { $0.lastReadAt != nil }
+            .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
+            .prefix(5)
+            .map { $0 }
+    }
     
     /// フォルダのサムネイルURLキャッシュ (LRU管理, 上限500件)
     private(set) var folderThumbnails = LRUCache<String, [URL]>(capacity: 500)
@@ -111,11 +141,7 @@ final class LibraryViewModel {
         var id: String { self.rawValue }
     }
     
-    var sortOption: SortOption = .nameAsc {
-        didSet {
-            sortItems()
-        }
-    }
+    var sortOption: SortOption = .nameAsc
     
     /// 表示モード
     enum ViewMode: String, CaseIterable {
@@ -177,7 +203,6 @@ final class LibraryViewModel {
                 pageToken: nil
             )
             items = result.items
-            sortItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -285,6 +310,10 @@ final class LibraryViewModel {
         // ルートIDを再取得（キャッシュされているはず）
         currentFolderId = try? await driveService.fetchRootFolderId()
         items = []
+    }
+    
+    /// リフレッシュ
+    func refresh() async {
         await loadFiles()
     }
     
@@ -302,11 +331,6 @@ final class LibraryViewModel {
                 return (lhs.modifiedTime ?? Date.distantPast) < (rhs.modifiedTime ?? Date.distantPast)
             }
         }
-    }
-    
-    /// リフレッシュ
-    func refresh() async {
-        await loadFiles()
     }
     
     /// 一括ダウンロード

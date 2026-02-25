@@ -61,6 +61,7 @@ struct LibraryView: View {
             .toolbar {
                 toolbarContent
             }
+            .searchable(text: $libraryViewModel.searchText, prompt: "作品・フォルダを検索")
             .refreshable {
                 await libraryViewModel.refresh()
             }
@@ -138,6 +139,12 @@ struct LibraryView: View {
     private var fileListContent: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                // 最近読んだ作品（ルート階層でのみ表示）
+                if libraryViewModel.currentFolderId == Config.GoogleAPI.defaultFolderId && !libraryViewModel.recentComics.isEmpty {
+                    recentComicsShelf
+                    Divider().padding(.vertical, 8)
+                }
+                
                 // パンくずリスト
                 if !libraryViewModel.folderPath.isEmpty {
                     breadcrumbView
@@ -160,10 +167,77 @@ struct LibraryView: View {
         }
     }
     
+    /// 最近読んだ作品シェルフ
+    private var recentComicsShelf: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("最近読んだ作品")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(libraryViewModel.recentComics) { comic in
+                        Button {
+                            // クリックですぐに開く
+                            readingSession = ComicSession(source: LocalComicSource(comic: comic))
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                // サムネイル
+                                ZStack(alignment: .bottomLeading) {
+                                    Group {
+                                        if let firstImagePath = comic.imagePaths.first {
+                                            KFImage(firstImagePath)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 120, height: 160)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        } else {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color(.secondarySystemGroupedBackground))
+                                                .frame(width: 120, height: 160)
+                                                .overlay(
+                                                    Image(systemName: "book.closed")
+                                                        .foregroundColor(.gray)
+                                                )
+                                        }
+                                    }
+                                    
+                                    // プログレスバー（画像にかぶせる）
+                                    if comic.readingProgress > 0 {
+                                        ProgressView(value: comic.readingProgress)
+                                            .progressViewStyle(.linear)
+                                            .tint(.blue)
+                                            .background(Color.white.opacity(0.8))
+                                            .frame(height: 4)
+                                            .clipShape(RoundedRectangle(cornerRadius: 2))
+                                            .padding([.horizontal, .bottom], 8)
+                                    }
+                                }
+                                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                                
+                                // タイトル
+                                Text(comic.title)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(width: 120, alignment: .leading)
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 8)
+    }
+    
     /// グリッド表示
     private var gridView: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
-            ForEach(libraryViewModel.items) { item in
+            ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemGridCell(
                     item: item,
                     isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
@@ -191,7 +265,7 @@ struct LibraryView: View {
     /// リスト表示
     private var listView: some View {
         LazyVStack(spacing: 8) {
-            ForEach(libraryViewModel.items) { item in
+            ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemListRow(
                     item: item,
                     isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
