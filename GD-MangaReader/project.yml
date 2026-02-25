@@ -80,4 +80,6 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - $(GID_REVERSED_CLIENT_ID)
+          - CFBundleURLSchemes:
+              - com.googleusercontent.apps.dummy
         GIDClientID: $(GID_CLIENT_ID).apps.googleusercontent.com
