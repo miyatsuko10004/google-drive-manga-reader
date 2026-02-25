@@ -24,8 +24,9 @@ jobs:
       - name: Generate Project
         run: |
           cd GD-MangaReader
+          echo "GID_CLIENT_ID = dummy_client_id" > Secrets.xcconfig
+          echo "GID_REVERSED_CLIENT_ID = com.googleusercontent.apps.dummy_client_id" >> Secrets.xcconfig
           xcodegen generate
-
       - name: Build
         run: |
           cd GD-MangaReader
