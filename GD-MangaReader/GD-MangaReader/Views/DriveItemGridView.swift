@@ -3,6 +3,7 @@ import SwiftUI
 struct DriveItemGridView: View {
     let gridColumns: [GridItem]
     let libraryViewModel: LibraryViewModel
+    let bulkDownloadManager: BulkDownloadManager
     @Binding var selectedFolderForBulk: DriveItem?
     @Binding var showingBulkDownloadConfirmation: Bool
     let onItemTap: (DriveItem) -> Void
@@ -12,7 +13,7 @@ struct DriveItemGridView: View {
             ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemGridCell(
                     item: item,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    isBulkDownloading: (bulkDownloadManager.isDownloading && item.id == bulkDownloadManager.targetFolderId),
                     localComic: libraryViewModel.downloadedComics[item.id],
                     folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )

@@ -34,10 +34,7 @@
 	<key>GIDClientID</key>
 	<string>$(GID_CLIENT_ID).apps.googleusercontent.com</string>
 	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>LaunchBackgroundColor</string>
-	</dict>
+	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

@@ -36,6 +36,9 @@ final class LocalStorageService: @unchecked Sendable {
     /// ファイルマネージャー
     private let fileManager = FileManager.default
     
+    /// スレッドセーフなアクセスのための再帰的ロック
+    private let lock = NSRecursiveLock()
+    
     // MARK: - Initialization
     
     private init() {
@@ -54,6 +57,9 @@ final class LocalStorageService: @unchecked Sendable {
     // MARK: - Comic Management
     
     func loadComics() throws -> [LocalComic] {
+        lock.lock()
+        defer { lock.unlock() }
+        
         guard fileManager.fileExists(atPath: metadataFileURL.path) else {
             return []
         }
@@ -63,6 +69,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func saveComics(_ comics: [LocalComic]) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         let data = try encoder.encode(comics)
@@ -70,6 +79,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func addComic(_ comic: LocalComic) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        
         var comics = (try? loadComics()) ?? []
         
         if let index = comics.firstIndex(where: { $0.driveFileId == comic.driveFileId }) {
@@ -82,6 +94,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func updateComic(_ comic: LocalComic) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        
         var comics = try loadComics()
         if let index = comics.firstIndex(where: { $0.id == comic.id }) {
             comics[index] = comic
@@ -90,6 +105,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func deleteComic(_ comic: LocalComic) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        
         let comicPath = comicsDirectory.appendingPathComponent(comic.localPath)
         if fileManager.fileExists(atPath: comicPath.path) {
             try fileManager.removeItem(at: comicPath)
@@ -101,6 +119,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func findComic(byDriveFileId driveFileId: String) throws -> LocalComic? {
+        lock.lock()
+        defer { lock.unlock() }
+        
         let comics = try loadComics()
         return comics.first { $0.driveFileId == driveFileId }
     }
@@ -177,6 +198,9 @@ final class LocalStorageService: @unchecked Sendable {
     }
     
     func clearAllComics() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        
         let comics = try loadComics()
         for comic in comics {
             let comicPath = comicsDirectory.appendingPathComponent(comic.localPath)

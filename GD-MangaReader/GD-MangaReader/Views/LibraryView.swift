@@ -10,12 +10,14 @@ import Kingfisher
 struct LibraryView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @State private var libraryViewModel = LibraryViewModel()
+    @State private var bulkDownloadManager = BulkDownloadManager()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
     @State private var showingBulkDownloadConfirmation = false
     @State private var selectedFolderForBulk: DriveItem?
     @State private var localRefreshTrigger = 0
+    @State private var toast: ToastData?
     
     struct ComicSession: Identifiable {
         var id: String { source.id }
@@ -35,8 +37,7 @@ struct LibraryView: View {
                 
                 if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
                     // 初回ローディング
-                    ProgressView("読み込み中...")
-                        .scaleEffect(1.2)
+                    shimmerLoadingView
                 } else if let error = libraryViewModel.errorMessage {
                     // エラー表示
                     errorView(message: error)
@@ -49,13 +50,14 @@ struct LibraryView: View {
                 }
                 
                 // 一括ダウンロードプログレスバナー
-                if libraryViewModel.isBulkDownloading {
+                if bulkDownloadManager.isDownloading {
                     VStack {
                         Spacer()
                         bulkDownloadBanner
                     }
                 }
             }
+            .toastView(toast: $toast)
             .navigationTitle(libraryViewModel.currentFolderName)
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -81,11 +83,38 @@ struct LibraryView: View {
                 Button("キャンセル", role: .cancel) {}
                 Button("ダウンロード") {
                     if let folder = selectedFolderForBulk {
-                        libraryViewModel.bulkDownloadSeries(
+                        bulkDownloadManager.downloadSeries(
                             folder: folder,
+                            driveService: libraryViewModel.driveService,
                             authorizer: authViewModel.authorizer,
-                            accessToken: authViewModel.accessToken
+                            accessToken: authViewModel.accessToken,
+                            onComplete: { failedCount in
+                                Task { @MainActor in
+                                    if failedCount == 0 {
+                                        toast = ToastData(
+                                            title: "ダウンロード完了",
+                                            message: "\(folder.name) のダウンロードが完了しました",
+                                            type: .success
+                                        )
+                                    } else {
+                                        let title = "ダウンロード完了 (\(failedCount)件失敗)"
+                                        let message = "\(folder.name) のダウンロードが完了しましたが、"
+                                            + "一部失敗しました"
+                                        toast = ToastData(title: title, message: message, type: .error)
+                                    }
+                                }
+                            },
+                            onError: { error in
+                                Task { @MainActor in
+                                    toast = ToastData(
+                                        title: "ダウンロード失敗",
+                                        message: error.localizedDescription,
+                                        type: .error
+                                    )
+                                }
+                            }
                         )
+                        toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
                     }
                 }
             } message: {
@@ -159,6 +188,7 @@ struct LibraryView: View {
                     DriveItemGridView(
                         gridColumns: gridColumns,
                         libraryViewModel: libraryViewModel,
+                        bulkDownloadManager: bulkDownloadManager,
                         selectedFolderForBulk: $selectedFolderForBulk,
                         showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
                         onItemTap: handleItemTap
@@ -166,6 +196,7 @@ struct LibraryView: View {
                 case .list:
                     DriveItemListView(
                         libraryViewModel: libraryViewModel,
+                        bulkDownloadManager: bulkDownloadManager,
                         selectedFolderForBulk: $selectedFolderForBulk,
                         showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
                         onItemTap: handleItemTap
@@ -174,7 +205,7 @@ struct LibraryView: View {
                 
                 // さらに読み込み
                 if libraryViewModel.hasMoreItems {
-                    loadMoreButton
+                    autoLoadMoreView
                 }
             }
             .padding()
@@ -208,19 +239,40 @@ struct LibraryView: View {
         }
     }
     
-    /// さらに読み込みボタン
-    private var loadMoreButton: some View {
-        Button {
-            Task { await libraryViewModel.loadMoreFiles() }
-        } label: {
-            if libraryViewModel.isLoading {
-                ProgressView()
-            } else {
-                Text("さらに読み込む")
+    /// さらに読み込みトリガー
+    private var autoLoadMoreView: some View {
+        Color.clear
+            .frame(height: 20)
+            .onAppear {
+                if libraryViewModel.hasMoreItems && !libraryViewModel.isLoading {
+                    Task { await libraryViewModel.loadMoreFiles() }
+                }
             }
+    }
+    
+    /// スケルトンUI（Shimmer）
+    private var shimmerLoadingView: some View {
+        ScrollView {
+            LazyVGrid(columns: gridColumns, spacing: 16) {
+                ForEach(0..<12, id: \.self) { _ in
+                    VStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                            .aspectRatio(1, contentMode: .fit)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                            .frame(height: 14)
+                            .padding(.horizontal, 8)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                            .frame(width: 50, height: 10)
+                    }
+                    .padding(8)
+                    .shimmer()
+                }
+            }
+            .padding()
         }
-        .frame(maxWidth: .infinity)
-        .padding()
     }
     
     /// 空の状態表示
@@ -262,13 +314,13 @@ struct LibraryView: View {
                 
                 HStack {
                     ProgressView(
-                        value: Double(libraryViewModel.bulkDownloadCurrent),
-                        total: Double(max(1, libraryViewModel.bulkDownloadTotal))
+                        value: Double(bulkDownloadManager.currentCount),
+                        total: Double(max(1, bulkDownloadManager.totalCount))
                     )
                     .progressViewStyle(.linear)
                     .tint(.green)
                     
-                    Text("\(libraryViewModel.bulkDownloadCurrent) / \(libraryViewModel.bulkDownloadTotal)")
+                    Text("\(bulkDownloadManager.currentCount) / \(bulkDownloadManager.totalCount)")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.8))
                 }
@@ -280,7 +332,7 @@ struct LibraryView: View {
         .padding()
         .shadow(radius: 10)
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(), value: libraryViewModel.isBulkDownloading)
+        .animation(.spring(), value: bulkDownloadManager.isDownloading)
     }
     
     /// ツールバー

@@ -18,8 +18,21 @@ jobs:
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Cache Homebrew
+        uses: actions/cache@v4
+        id: cache-homebrew
+        with:
+          path: |
+            /usr/local/Cellar
+            /usr/local/Homebrew
+            /opt/homebrew
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('**/ios.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
+            
+      - name: Install Dependencies
+        if: steps.cache-homebrew.outputs.cache-hit != 'true'
+        run: brew install xcodegen swiftlint
 
       - name: Generate Project
         run: |
@@ -27,6 +40,9 @@ jobs:
           echo "GID_CLIENT_ID = dummy_client_id" > Secrets.xcconfig
           echo "GID_REVERSED_CLIENT_ID = com.googleusercontent.apps.dummy_client_id" >> Secrets.xcconfig
           xcodegen generate
+          
+      - name: SwiftLint
+        run: swiftlint
       - name: Build
         run: |
           cd GD-MangaReader

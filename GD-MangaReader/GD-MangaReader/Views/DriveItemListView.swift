@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DriveItemListView: View {
     let libraryViewModel: LibraryViewModel
+    let bulkDownloadManager: BulkDownloadManager
     @Binding var selectedFolderForBulk: DriveItem?
     @Binding var showingBulkDownloadConfirmation: Bool
     let onItemTap: (DriveItem) -> Void
@@ -11,7 +12,7 @@ struct DriveItemListView: View {
             ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemListRow(
                     item: item,
-                    isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
+                    isBulkDownloading: (bulkDownloadManager.isDownloading && item.id == bulkDownloadManager.targetFolderId),
                     localComic: libraryViewModel.downloadedComics[item.id],
                     folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )
