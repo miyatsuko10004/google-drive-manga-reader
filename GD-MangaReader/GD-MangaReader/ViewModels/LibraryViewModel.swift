@@ -26,6 +26,9 @@ final class LibraryViewModel {
     /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
     private(set) var downloadedComics: [String: LocalComic] = [:]
     
+    /// フォルダのサムネイルURLキャッシュ (FolderId -> [URL]) (最大4つ)
+    private(set) var folderThumbnails: [String: [URL]] = [:]
+    
     /// 現在のフォルダID（nilはルート）
     private(set) var currentFolderId: String? = Config.GoogleAPI.defaultFolderId
     
@@ -157,6 +160,38 @@ final class LibraryViewModel {
                 newCache[comic.driveFileId] = comic
             }
             downloadedComics = newCache
+        }
+    }
+    
+    /// フォルダ用のプレビューサムネイル（最大4件）を非同期取得してキャッシュする
+    func fetchThumbnails(for folder: DriveItem) async {
+        guard folder.isFolder else { return }
+        // 既にローカルキャッシュにのっていれば何もしない
+        guard folderThumbnails[folder.id] == nil else { return }
+        
+        do {
+            let candidates = try await driveService.fetchThumbnailCandidates(forFolder: folder.id, limit: 4)
+            var urls: [URL] = []
+            
+            for candidate in candidates {
+                // 1. ローカルに高画質キャッシュがあるか
+                if let localComic = downloadedComics[candidate.id],
+                   let firstImage = localComic.imagePaths.first {
+                    urls.append(firstImage)
+                }
+                // 2. DriveAPIによる低画質サムネイルがあるか
+                else if let thumb = candidate.thumbnailURL {
+                    urls.append(thumb)
+                }
+            }
+            
+            // 4件に満たない場合でもキャッシュを確定して再フェッチを防ぐ
+            folderThumbnails[folder.id] = urls
+            
+        } catch {
+            print("Folder Thumbnail Fetch Array Error: \(folder.name) - \(error.localizedDescription)")
+            // 失敗時は空配列を入れて無限リトライを防止
+            folderThumbnails[folder.id] = []
         }
     }
     

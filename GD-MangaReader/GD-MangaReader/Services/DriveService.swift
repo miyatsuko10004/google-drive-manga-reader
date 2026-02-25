@@ -143,6 +143,47 @@ final class DriveService {
         return (items, result.nextPageToken)
     }
     
+    /// サムネイル制作用にフォルダ内の候補ファイル（アーカイブ/画像）を少数取得する
+    func fetchThumbnailCandidates(forFolder folderId: String, limit: Int = 4) async throws -> [DriveItem] {
+        let query = GTLRDriveQuery_FilesList.query()
+        
+        let archiveExtensionConditions = Config.SupportedFormats.archiveExtensions
+            .map { "name contains '.\($0)'" }
+        
+        let imageExtensionConditions = Config.SupportedFormats.imageExtensions
+            .map { "name contains '.\($0)'" }
+            
+        let allExtensionConditions = (archiveExtensionConditions + imageExtensionConditions)
+            .joined(separator: " or ")
+        
+        query.q = "'\(folderId)' in parents and trashed=false and (\(allExtensionConditions))"
+        // サムネイルに特化した必要最小限のフィールドだけを要求し軽量化
+        query.fields = "files(id, name, mimeType, thumbnailLink)"
+        query.orderBy = "name"
+        query.pageSize = limit
+        
+        let result = try await executeFileListQuery(query)
+        
+        let items = (result.files ?? []).compactMap { file -> DriveItem? in
+            guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
+                return nil
+            }
+            
+            return DriveItem(
+                id: id,
+                name: name,
+                mimeType: mimeType,
+                size: file.size?.int64Value,
+                thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
+                parentId: folderId,
+                createdTime: file.createdTime?.date,
+                modifiedTime: file.modifiedTime?.date
+            )
+        }
+        
+        return items
+    }
+    
     /// ファイルのダウンロードURLを取得
     func getDownloadRequest(for fileId: String) async throws -> URLRequest {
         let baseURL = "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media"
