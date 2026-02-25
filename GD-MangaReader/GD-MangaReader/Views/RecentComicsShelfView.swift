@@ -63,6 +63,7 @@ struct RecentComicsShelfView: View {
                             }
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .accessibilityLabel("\(comic.title)、読了率 \(Int(comic.readingProgress * 100))パーセント")
                     }
                 }
                 .padding(.horizontal)

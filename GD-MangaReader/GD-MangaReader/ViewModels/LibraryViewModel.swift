@@ -47,9 +47,7 @@ final class LibraryViewModel {
     // MARK: - Properties
     
     /// 現在表示中のアイテム一覧
-    private(set) var items: [DriveItem] = [] {
-        didSet { updateFilteredItems() }
-    }
+    private(set) var items: [DriveItem] = []
     
     /// 読み込み中フラグ
     private(set) var isLoading: Bool = false
@@ -147,11 +145,7 @@ final class LibraryViewModel {
     
     // MARK: - Dependencies
     
-    // MARK: - Dependencies
-    
     let driveService: DriveService
-    
-    // MARK: - Initialization
     
     // MARK: - Initialization
     
@@ -185,11 +179,12 @@ final class LibraryViewModel {
     
     /// 最近読んだコミックリストを更新
     private func updateRecentComics() {
-        recentComics = downloadedComics.values
-            .filter { $0.lastReadAt != nil }
-            .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
-            .prefix(5)
-            .map { $0 }
+        recentComics = Array(
+            downloadedComics.values
+                .filter { $0.lastReadAt != nil }
+                .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
+                .prefix(5)
+        )
     }
     
     /// DriveServiceに認証情報を設定
@@ -217,6 +212,7 @@ final class LibraryViewModel {
                 pageToken: nil
             )
             items = result.items
+            updateFilteredItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -281,7 +277,7 @@ final class LibraryViewModel {
                 pageToken: nextPageToken
             )
             items.append(contentsOf: result.items)
-            sortItems()
+            updateFilteredItems()
             nextPageToken = result.nextPageToken
         } catch {
             errorMessage = error.localizedDescription
@@ -298,6 +294,7 @@ final class LibraryViewModel {
         
         currentFolderId = folder.id
         items = []
+        updateFilteredItems()
         await loadFiles()
     }
     
@@ -315,6 +312,7 @@ final class LibraryViewModel {
         }
         
         items = []
+        updateFilteredItems()
         await loadFiles()
     }
     
@@ -324,27 +322,13 @@ final class LibraryViewModel {
         // ルートIDを再取得（キャッシュされているはず）
         currentFolderId = try? await driveService.fetchRootFolderId()
         items = []
+        updateFilteredItems()
+        await loadFiles()
     }
     
     /// リフレッシュ
     func refresh() async {
         await loadFiles()
-    }
-    
-    /// アイテムをソートする
-    private func sortItems() {
-        items.sort { lhs, rhs in
-            switch sortOption {
-            case .nameAsc:
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            case .nameDesc:
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedDescending
-            case .dateNewest:
-                return (lhs.modifiedTime ?? Date.distantPast) > (rhs.modifiedTime ?? Date.distantPast)
-            case .dateOldest:
-                return (lhs.modifiedTime ?? Date.distantPast) < (rhs.modifiedTime ?? Date.distantPast)
-            }
-        }
     }
     
     /// 一括ダウンロード

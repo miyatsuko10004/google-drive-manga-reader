@@ -34,6 +34,7 @@ description: Use this skill when the user asks for a code review or feedback on 
     - `assets/review_report_template.md` を読み込む。
     - 発見した事項をテンプレートに埋め込む。
     - 問題を正しく分類すること (クリティカル vs 重要 vs 提案)。
+    - 各指摘事項に対して、必ず対象のファイルパス(`file`)、および開始行・終了行(`startLine` / `endLine`、単一の行の場合は`line`)を明記してトレーサビリティを確保すること。
 
 ## トーン (Tone)
 - プロフェッショナル、経験豊富、メンター的。

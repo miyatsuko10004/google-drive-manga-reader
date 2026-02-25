@@ -398,28 +398,17 @@ final class ReaderViewModel {
     
     func goToNextPage() {
         if currentPage < pageCount - 1 {
-            if isSpreadMode {
-                currentPage += (currentPage == 0) ? 1 : 2
-            } else {
-                currentPage += 1
-            }
-            currentPage = min(currentPage, pageCount - 1)
+            let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
+            let newIndex = min(pageIndices.count - 1, currentIndex + 1)
+            currentPage = pageIndices[newIndex]
         }
     }
     
     func goToPreviousPage() {
         if currentPage > 0 {
-            if isSpreadMode {
-                // 表紙の前は戻れないので、そこにあわせる
-                if currentPage == 1 || currentPage == 2 {
-                    currentPage = 0
-                } else {
-                    currentPage -= 2
-                }
-            } else {
-                currentPage -= 1
-            }
-            currentPage = max(currentPage, 0)
+            let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
+            let newIndex = max(0, currentIndex - 1)
+            currentPage = pageIndices[newIndex]
         }
     }
     

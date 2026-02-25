@@ -66,7 +66,7 @@ struct LibraryView: View {
                 await libraryViewModel.refresh()
             }
             .task {
-                await libraryViewModel.configure(with: authViewModel.authorizer)
+                libraryViewModel.configure(with: authViewModel.authorizer)
                 await libraryViewModel.loadFiles()
             }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
@@ -140,7 +140,7 @@ struct LibraryView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 // 最近読んだ作品（ルート階層でのみ表示）
-                if libraryViewModel.currentFolderId == Config.GoogleAPI.defaultFolderId && !libraryViewModel.recentComics.isEmpty {
+                if libraryViewModel.folderPath.isEmpty && !libraryViewModel.recentComics.isEmpty {
                     RecentComicsShelfView(
                         readingSession: $readingSession,
                         recentComics: libraryViewModel.recentComics
