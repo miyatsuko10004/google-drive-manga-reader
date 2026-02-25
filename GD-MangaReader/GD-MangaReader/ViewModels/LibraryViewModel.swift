@@ -6,6 +6,40 @@
 import Foundation
 import SwiftUI
 
+/// 簡易的なLRUキャッシュ（Viewからの読み取りを安全に行うため、非破壊なsubscriptを提供）
+struct LRUCache<Key: Hashable, Value> {
+    private let capacity: Int
+    private var order: [Key] = []
+    private var dict: [Key: Value] = [:]
+    
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+    
+    mutating func set(_ value: Value, forKey key: Key) {
+        if let index = order.firstIndex(of: key) {
+            order.remove(at: index)
+        }
+        order.append(key)
+        dict[key] = value
+        
+        if order.count > capacity {
+            let oldest = order.removeFirst()
+            dict.removeValue(forKey: oldest)
+        }
+    }
+    
+    mutating func removeAll() {
+        dict.removeAll()
+        order.removeAll()
+    }
+    
+    // Viewバインディング用に非破壊な読み取りを提供（順序の更新は行わない）
+    subscript(key: Key) -> Value? {
+        dict[key]
+    }
+}
+
 /// ライブラリ（Driveファイルブラウザ）の状態管理
 @MainActor
 @Observable
@@ -26,8 +60,8 @@ final class LibraryViewModel {
     /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
     private(set) var downloadedComics: [String: LocalComic] = [:]
     
-    /// フォルダのサムネイルURLキャッシュ (FolderId -> [URL]) (最大4つ)
-    private(set) var folderThumbnails: [String: [URL]] = [:]
+    /// フォルダのサムネイルURLキャッシュ (LRU管理, 上限500件)
+    private(set) var folderThumbnails = LRUCache<String, [URL]>(capacity: 500)
     
     /// 現在のフォルダID（nilはルート）
     private(set) var currentFolderId: String? = Config.GoogleAPI.defaultFolderId
@@ -127,6 +161,7 @@ final class LibraryViewModel {
     /// ファイル一覧を読み込み
     func loadFiles() async {
         refreshDownloadedComics()
+        folderThumbnails.removeAll()
         isLoading = true
         errorMessage = nil
         
@@ -186,12 +221,12 @@ final class LibraryViewModel {
             }
             
             // 4件に満たない場合でもキャッシュを確定して再フェッチを防ぐ
-            folderThumbnails[folder.id] = urls
+            folderThumbnails.set(urls, forKey: folder.id)
             
         } catch {
             print("Folder Thumbnail Fetch Array Error: \(folder.name) - \(error.localizedDescription)")
             // 失敗時は空配列を入れて無限リトライを防止
-            folderThumbnails[folder.id] = []
+            folderThumbnails.set([], forKey: folder.id)
         }
     }
     

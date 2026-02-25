@@ -464,7 +464,7 @@ struct DriveItemGridCell: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
                     // フォルダ用 サムネイルタイル
-                    FolderThumbnailView(urls: folderThumbnails, isGrid: true)
+                    FolderThumbnailView(urls: folderThumbnails)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     Image(systemName: item.iconName)
@@ -557,7 +557,7 @@ struct DriveItemListRow: View {
                         .clipShape(Circle())
                 } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
                     // フォルダ用 サムネイルタイル
-                    FolderThumbnailView(urls: folderThumbnails, isGrid: false)
+                    FolderThumbnailView(urls: folderThumbnails)
                         .clipShape(Circle())
                 } else {
                     Image(systemName: item.iconName)
@@ -642,7 +642,6 @@ struct DriveItemListRow: View {
 /// フォルダ内の画像サムネイルを格子状に表示するビュー
 struct FolderThumbnailView: View {
     let urls: [URL]
-    let isGrid: Bool
     
     var body: some View {
         GeometryReader { geometry in
