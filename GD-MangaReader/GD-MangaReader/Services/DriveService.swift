@@ -103,17 +103,7 @@ final class DriveService {
             .map { "mimeType='\($0)'" }
             .joined(separator: " or ")
         
-        // 拡張子による検索条件を追加（MIMEタイプが正しく付与されていない場合対策）
-        let archiveExtensionConditions = Config.SupportedFormats.archiveExtensions
-            .map { "name contains '.\($0)'" }
-        
-        let imageExtensionConditions = Config.SupportedFormats.imageExtensions
-            .map { "name contains '.\($0)'" }
-            
-        let allExtensionConditions = (archiveExtensionConditions + imageExtensionConditions)
-            .joined(separator: " or ")
-        
-        query.q = "'\(targetFolderId)' in parents and trashed=false and (\(mimeTypeConditions) or \(allExtensionConditions))"
+        query.q = "'\(targetFolderId)' in parents and trashed=false and (\(mimeTypeConditions) or \(allExtensionQuery))"
         query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime)"
         query.orderBy = "folder, name"
         query.pageSize = 50
@@ -141,6 +131,48 @@ final class DriveService {
         }
         
         return (items, result.nextPageToken)
+    }
+    
+    /// サムネイル制作用にフォルダ内の候補ファイル（アーカイブ/画像）を少数取得する
+    func fetchThumbnailCandidates(forFolder folderId: String, limit: Int = 4) async throws -> [DriveItem] {
+        let query = GTLRDriveQuery_FilesList.query()
+        
+        query.q = "'\(folderId)' in parents and trashed=false and (\(allExtensionQuery))"
+        // サムネイルに特化した必要最小限のフィールドだけを要求し軽量化
+        query.fields = "files(id, name, mimeType, thumbnailLink)"
+        query.orderBy = "name"
+        query.pageSize = limit
+        
+        let result = try await executeFileListQuery(query)
+        
+        let items = (result.files ?? []).compactMap { file -> DriveItem? in
+            guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
+                return nil
+            }
+            
+            return DriveItem(
+                id: id,
+                name: name,
+                mimeType: mimeType,
+                size: nil,
+                thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
+                parentId: folderId,
+                createdTime: file.createdTime?.date,
+                modifiedTime: file.modifiedTime?.date
+            )
+        }
+        
+        return Array(items.prefix(limit))
+    }
+    
+    // MARK: - Private Helpers
+    
+    private var allExtensionQuery: String {
+        let archiveConditions = Config.SupportedFormats.archiveExtensions
+            .map { "name contains '.\($0)'" }
+        let imageConditions = Config.SupportedFormats.imageExtensions
+            .map { "name contains '.\($0)'" }
+        return (archiveConditions + imageConditions).joined(separator: " or ")
     }
     
     /// ファイルのダウンロードURLを取得

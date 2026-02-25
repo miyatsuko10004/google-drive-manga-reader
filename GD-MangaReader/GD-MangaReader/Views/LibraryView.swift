@@ -167,8 +167,14 @@ struct LibraryView: View {
                 DriveItemGridCell(
                     item: item,
                     isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
-                    localComic: libraryViewModel.downloadedComics[item.id]
+                    localComic: libraryViewModel.downloadedComics[item.id],
+                    folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )
+                    .task {
+                        if item.isFolder {
+                            await libraryViewModel.fetchThumbnails(for: item)
+                        }
+                    }
                     .onTapGesture {
                         handleItemTap(item)
                     }
@@ -189,8 +195,14 @@ struct LibraryView: View {
                 DriveItemListRow(
                     item: item,
                     isBulkDownloading: (libraryViewModel.isBulkDownloading && item.id == libraryViewModel.bulkDownloadTargetFolderId),
-                    localComic: libraryViewModel.downloadedComics[item.id]
+                    localComic: libraryViewModel.downloadedComics[item.id],
+                    folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )
+                    .task {
+                        if item.isFolder {
+                            await libraryViewModel.fetchThumbnails(for: item)
+                        }
+                    }
                     .onTapGesture {
                         handleItemTap(item)
                     }
@@ -426,6 +438,7 @@ struct DriveItemGridCell: View {
     let item: DriveItem
     let isBulkDownloading: Bool
     let localComic: LocalComic?
+    let folderThumbnails: [URL]?
     
     private var isDownloaded: Bool { localComic != nil }
     private var localThumbnailURL: URL? { localComic?.imagePaths.first }
@@ -448,6 +461,10 @@ struct DriveItemGridCell: View {
                     KFImage(localThumbnailURL)
                         .resizable()
                         .scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
+                    // フォルダ用 サムネイルタイル
+                    FolderThumbnailView(urls: folderThumbnails)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     Image(systemName: item.iconName)
@@ -518,6 +535,7 @@ struct DriveItemListRow: View {
     let item: DriveItem
     let isBulkDownloading: Bool
     let localComic: LocalComic?
+    let folderThumbnails: [URL]?
     
     private var isDownloaded: Bool { localComic != nil }
     private var localThumbnailURL: URL? { localComic?.imagePaths.first }
@@ -536,6 +554,10 @@ struct DriveItemListRow: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
+                    // フォルダ用 サムネイルタイル
+                    FolderThumbnailView(urls: folderThumbnails)
                         .clipShape(Circle())
                 } else {
                     Image(systemName: item.iconName)
@@ -613,4 +635,35 @@ struct DriveItemListRow: View {
 #Preview {
     LibraryView()
         .environment(AuthViewModel())
+}
+
+// MARK: - Folder Thumbnail View
+
+/// フォルダ内の画像サムネイルを格子状に表示するビュー
+struct FolderThumbnailView: View {
+    let urls: [URL]
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let cols = 2
+            let spacing: CGFloat = 2
+            let totalSpacing = spacing * CGFloat(cols - 1)
+            let itemSize = (geometry.size.width - totalSpacing) / CGFloat(cols)
+            
+            LazyVGrid(columns: [
+                GridItem(.fixed(itemSize), spacing: spacing),
+                GridItem(.fixed(itemSize), spacing: spacing)
+            ], spacing: spacing) {
+                // 最大4つまで表示
+                ForEach(0..<min(urls.count, 4), id: \.self) { index in
+                    KFImage(urls[index])
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: itemSize, height: itemSize)
+                        .clipped()
+                }
+            }
+        }
+        .background(Color(.systemGray5))
+    }
 }
