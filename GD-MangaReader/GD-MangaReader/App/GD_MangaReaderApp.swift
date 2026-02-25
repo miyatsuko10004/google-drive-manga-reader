@@ -35,12 +35,14 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            _ = print("🔍 [CONTENT] isSignedIn = \(authViewModel.isSignedIn)")
             if authViewModel.isSignedIn {
                 LibraryView()
             } else {
                 LoginView()
             }
+        }
+        .onAppear {
+            print("🔍 [CONTENT] isSignedIn = \(authViewModel.isSignedIn)")
         }
         .task {
             print("⏳ [CONTENT] Starting restorePreviousSignIn")
