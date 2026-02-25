@@ -88,8 +88,12 @@ struct LibraryView: View {
                             driveService: libraryViewModel.driveService,
                             authorizer: authViewModel.authorizer,
                             accessToken: authViewModel.accessToken,
-                            onComplete: {
-                                toast = ToastData(title: "ダウンロード完了", message: "\(folder.name) のダウンロードが完了しました", type: .success)
+                            onComplete: { failedCount in
+                                if failedCount == 0 {
+                                    toast = ToastData(title: "ダウンロード完了", message: "\(folder.name) のダウンロードが完了しました", type: .success)
+                                } else {
+                                    toast = ToastData(title: "ダウンロード完了 (\(failedCount)件失敗)", message: "\(folder.name) のダウンロードが完了しましたが、一部失敗しました", type: .error)
+                                }
                             },
                             onError: { error in
                                 toast = ToastData(title: "ダウンロード失敗", message: error.localizedDescription, type: .error)
@@ -224,8 +228,11 @@ struct LibraryView: View {
     private var autoLoadMoreView: some View {
         Color.clear
             .frame(height: 20)
+            .id(UUID()) // 常に再描画させて発火を促す
             .onAppear {
-                Task { await libraryViewModel.loadMoreFiles() }
+                if libraryViewModel.hasMoreItems {
+                    Task { await libraryViewModel.loadMoreFiles() }
+                }
             }
     }
     

@@ -47,6 +47,10 @@ struct ToastModifier: ViewModifier {
             .onChange(of: toast) { _, newValue in
                 showToast()
             }
+            .onDisappear {
+                task?.cancel()
+                task = nil
+            }
     }
     
     @ViewBuilder

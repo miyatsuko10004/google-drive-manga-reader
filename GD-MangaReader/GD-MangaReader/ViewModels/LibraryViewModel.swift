@@ -316,32 +316,6 @@ final class LibraryViewModel {
     func refresh() async {
         await loadFiles()
     }
-    
-    /// 一括ダウンロード
-    func bulkDownloadSeries(folder: DriveItem, authorizer: (any GTMSessionFetcherAuthorizer)?, accessToken: String?) {
-        let manager = BulkDownloadManager.shared
-        manager.onDownloadUpdate = { [weak self] in
-            Task { @MainActor in
-                self?.refreshDownloadedComics()
-                self?.downloadUpdateTrigger += 1
-            }
-        }
-        
-        manager.downloadSeries(
-            folder: folder,
-            driveService: driveService,
-            authorizer: authorizer,
-            accessToken: accessToken,
-            onComplete: {
-                // Handle completion
-            },
-            onError: { [weak self] error in
-                Task { @MainActor in
-                    self?.errorMessage = "一括ダウンロード中にエラーが発生しました: \(error.localizedDescription)"
-                }
-            }
-        )
-    }
 }
 
 // MARK: - Import for GTMFetcherAuthorizationProtocol

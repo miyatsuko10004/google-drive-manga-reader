@@ -92,6 +92,7 @@ struct ReaderView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.pageRange, id: \.self) { index in
+                        // vertical pages
                         ZoomableImageView(
                             source: source,
                             index: index,
@@ -448,7 +449,7 @@ struct ZoomableImageView: View {
     let index: Int
     let geometry: GeometryProxy
     var isHalfWidth: Bool = false
-    var currentPage: Int
+    let currentPage: Int
     
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -470,12 +471,16 @@ struct ZoomableImageView: View {
             .offset(offset)
             .gesture(magnificationGesture)
             .gesture(dragGesture, including: scale > 1.0 ? .all : .subviews)
-            .onChange(of: currentPage) { _, _ in
-                if scale > 1.0 || offset != .zero {
-                    scale = 1.0
-                    lastScale = 1.0
-                    offset = .zero
-                    lastOffset = .zero
+            .onChange(of: currentPage) { _, newPage in
+                if newPage != index {
+                    if scale > 1.0 || offset != .zero {
+                        withAnimation(.easeInOut) {
+                            scale = 1.0
+                            lastScale = 1.0
+                            offset = .zero
+                            lastOffset = .zero
+                        }
+                    }
                 }
             }
             .onTapGesture(count: 2) {

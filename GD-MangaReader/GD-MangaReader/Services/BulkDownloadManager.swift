@@ -10,7 +10,6 @@ import SwiftUI
 /// 一括ダウンロード全体の進行状態を管理
 @MainActor
 @Observable
-@Observable
 final class BulkDownloadManager {
     
     private(set) var isDownloading: Bool = false
@@ -18,6 +17,9 @@ final class BulkDownloadManager {
     private(set) var totalCount: Int = 0
     private(set) var targetFolderId: String?
     
+    private var downloadTask: Task<Void, Never>?
+    
+    var onDownloadUpdate: (() -> Void)?
     
     init() {}
     
@@ -29,7 +31,7 @@ final class BulkDownloadManager {
         driveService: DriveService,
         authorizer: (any GTMSessionFetcherAuthorizer)?,
         accessToken: String?,
-        onComplete: @escaping () -> Void,
+        onComplete: @escaping (_ failedCount: Int) -> Void,
         onError: @escaping (Error) -> Void
     ) {
         guard !isDownloading else { return }
@@ -38,7 +40,7 @@ final class BulkDownloadManager {
         currentCount = 0
         totalCount = 0
         
-        Task {
+        downloadTask = Task {
             defer {
                 resetState()
             }
@@ -67,40 +69,63 @@ final class BulkDownloadManager {
                 
                 totalCount = pendingArchives.count
                 
-                if totalCount == 0 {
-                    onComplete()
+                if totalCount == 0 || Task.isCancelled {
+                    onComplete(0)
                     return
                 }
                 
                 // 4. ダウンロード実行 (並列処理)
-                await withTaskGroup(of: Void.self) { group in
+                var failedCount = 0
+                await withTaskGroup(of: Bool.self) { group in
                     let maxConcurrentTasks = 3 // 同時ダウンロード数
                     var activeTasks = 0
                     
                     for archive in pendingArchives {
+                        if Task.isCancelled { break }
+                        
                         if activeTasks >= maxConcurrentTasks {
-                            await group.next()
+                            if let success = await group.next(), !success {
+                                failedCount += 1
+                            }
                             activeTasks -= 1
                         }
                         
                         activeTasks += 1
                         group.addTask {
-                            let downloader = DownloaderViewModel(driveService: driveService)
-                            downloader.configure(with: authorizer, accessToken: accessToken)
-                            _ = await downloader.downloadAndExtract(item: archive)
+                            let result: Bool = await MainActor.run {
+                                let downloader = DownloaderViewModel(driveService: driveService)
+                                downloader.configure(with: authorizer, accessToken: accessToken)
+                                return true
+                            }
+                            
+                            // To actually use DownloaderViewModel methods outside MainActor, we should probably just rely on isolation. 
+                            // Since downloadAndExtract is async, it might be safe to call it if it's annotated properly.
+                            // But wait, if downloader is on MainActor, calling downloader.downloadAndExtract will hop to MainActor.
+                            // Let's instantiate and configure on MainActor, then call the async function.
+                            let downloaderResult = await MainActor.run {
+                                let downloader = DownloaderViewModel(driveService: driveService)
+                                downloader.configure(with: authorizer, accessToken: accessToken)
+                                return downloader
+                            }
+                            let extractionResult = await downloaderResult.downloadAndExtract(item: archive)
                             
                             await MainActor.run {
                                 self.currentCount += 1
                                 self.onDownloadUpdate?()
                             }
+                            return extractionResult != nil
                         }
                     }
                     
                     // 残りのタスクを待機
-                    for await _ in group {}
+                    for await success in group {
+                        if !success { failedCount += 1 }
+                    }
                 }
                 
-                onComplete()
+                if !Task.isCancelled {
+                    onComplete(failedCount)
+                }
                 
             } catch {
                 onError(error)
@@ -108,10 +133,16 @@ final class BulkDownloadManager {
         }
     }
     
+    func cancel() {
+        downloadTask?.cancel()
+        downloadTask = nil
+    }
+    
     func resetState() {
         isDownloading = false
         currentCount = 0
         totalCount = 0
         targetFolderId = nil
+        downloadTask = nil
     }
 }
