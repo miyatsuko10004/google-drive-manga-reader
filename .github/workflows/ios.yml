@@ -42,7 +42,7 @@ jobs:
           xcodegen generate
           
       - name: SwiftLint
-        run: swiftlint --strict || echo "SwiftLint found issues, but continuing build"
+        run: swiftlint
       - name: Build
         run: |
           cd GD-MangaReader
