@@ -11,7 +11,6 @@ struct ReaderView: View {
     let source: any ComicSource
     @State private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     init(source: any ComicSource) {
         self.source = source
@@ -40,15 +39,15 @@ struct ReaderView: View {
             .onTapGesture(coordinateSpace: .local) { location in
                 handleTap(at: location, in: geometry.size)
             }
+            .onAppear {
+                viewModel.isLandscape = geometry.size.width > geometry.size.height
+            }
+            .onChange(of: geometry.size) { _, newSize in
+                viewModel.isLandscape = newSize.width > newSize.height
+            }
         }
         .ignoresSafeArea()
         .statusBarHidden(!viewModel.showUI)
-        .onAppear {
-            viewModel.updateSpreadMode(for: horizontalSizeClass)
-        }
-        .onChange(of: horizontalSizeClass) { _, newValue in
-            viewModel.updateSpreadMode(for: newValue)
-        }
         .focusable()
         .onKeyPress(.leftArrow) {
             handleLeftKey()
@@ -230,7 +229,7 @@ struct ReaderView: View {
             }
             
             // 見開き表示（横向き時のみ有効）
-            if horizontalSizeClass == .regular {
+            if viewModel.isLandscape {
                 Section {
                     Toggle("見開き表示", isOn: $viewModel.isSpreadEnabled)
                 }
@@ -370,7 +369,11 @@ final class ReaderViewModel {
     var isRightToLeft: Bool = true
     var readingMode: ReadingMode = .horizontal
     var isSpreadEnabled: Bool = true
-    var isSpreadMode: Bool = false
+    var isLandscape: Bool = false
+    
+    var isSpreadMode: Bool {
+        return isSpreadEnabled && isLandscape
+    }
     
     private let source: any ComicSource
     
@@ -416,10 +419,6 @@ final class ReaderViewModel {
             let newIndex = max(0, currentIndex - 1)
             currentPage = pageIndices[newIndex]
         }
-    }
-    
-    func updateSpreadMode(for sizeClass: UserInterfaceSizeClass?) {
-        isSpreadMode = isSpreadEnabled && sizeClass == .regular
     }
     
     /// 見開きページのインデックスを取得（左、右）
