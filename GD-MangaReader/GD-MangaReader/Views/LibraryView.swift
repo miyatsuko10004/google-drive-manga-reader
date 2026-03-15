@@ -127,6 +127,11 @@ struct LibraryView: View {
                     localRefreshTrigger += 1
                 }
             }
+            .onChange(of: readingSession) { _, newValue in
+                if newValue == nil {
+                    libraryViewModel.refreshDownloadedComics()
+                }
+            }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定
                 let target: DownloadTarget = {
@@ -168,13 +173,25 @@ struct LibraryView: View {
     private var fileListContent: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // 最近読んだ作品（ルート階層でのみ表示）
-                if libraryViewModel.folderPath.isEmpty && !libraryViewModel.recentComics.isEmpty {
-                    RecentComicsShelfView(
-                        readingSession: $readingSession,
-                        recentComics: libraryViewModel.recentComics
-                    )
-                    Divider().padding(.vertical, 8)
+                // 最近読んだ作品・おすすめ（ルート階層でのみ表示）
+                if libraryViewModel.folderPath.isEmpty {
+                    if !libraryViewModel.nextRecommendedComics.isEmpty {
+                        RecentComicsShelfView(
+                            title: "続きを読みませんか？",
+                            readingSession: $readingSession,
+                            recentComics: libraryViewModel.nextRecommendedComics
+                        )
+                        .padding(.bottom, 8)
+                    }
+                    
+                    if !libraryViewModel.recentComics.isEmpty {
+                        RecentComicsShelfView(
+                            title: "最近読んだ作品",
+                            readingSession: $readingSession,
+                            recentComics: libraryViewModel.recentComics
+                        )
+                        Divider().padding(.vertical, 8)
+                    }
                 }
                 
                 // パンくずリスト

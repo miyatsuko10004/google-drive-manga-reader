@@ -67,11 +67,17 @@ final class LibraryViewModel {
     
     /// ダウンロード済みコミックのキャッシュ (DriveFileId -> LocalComic)
     private(set) var downloadedComics: [String: LocalComic] = [:] {
-        didSet { updateRecentComics() }
+        didSet {
+            updateRecentComics()
+            updateNextRecommendedComics()
+        }
     }
     
     /// 最近読んだコミック（キャッシュから抽出して降順でソート、最大5件）
     private(set) var recentComics: [LocalComic] = []
+    
+    /// 次に読むべきおすすめ（最近読んだ作品の次巻など）
+    private(set) var nextRecommendedComics: [LocalComic] = []
     
     /// フォルダのサムネイルURLキャッシュ (LRU管理, 上限500件)
     private(set) var folderThumbnails = LRUCache<String, [URL]>(capacity: 500)
@@ -171,6 +177,68 @@ final class LibraryViewModel {
                 .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
                 .prefix(5)
         )
+    }
+    
+    /// 次に読むべきおすすめを更新
+    private func updateNextRecommendedComics() {
+        let allComics = Array(downloadedComics.values)
+        guard !allComics.isEmpty else {
+            nextRecommendedComics = []
+            return
+        }
+        
+        // 最近読んだ順に数件のシリーズを対象にする
+        let recentlyRead = allComics
+            .filter { $0.lastReadAt != nil }
+            .sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
+            .prefix(5)
+            
+        var recommendations: [LocalComic] = []
+        var seenSeries = Set<String>()
+        
+        for comic in recentlyRead {
+            let seriesTitle = extractSeriesTitle(from: comic.title)
+            guard !seriesTitle.isEmpty && !seenSeries.contains(seriesTitle) else { continue }
+            seenSeries.insert(seriesTitle)
+            
+            // このシリーズの全巻を取得してソート
+            let seriesVolumes = allComics
+                .filter { extractSeriesTitle(from: $0.title) == seriesTitle }
+                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            
+            // 現在の巻のインデックスを探す
+            if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == comic.id }) {
+                // 次の巻があれば追加
+                if currentIndex + 1 < seriesVolumes.count {
+                    let nextVol = seriesVolumes[currentIndex + 1]
+                    // まだ読み終わっていない（進捗100%未満）ものを追加
+                    if nextVol.readingProgress < 0.95 {
+                        recommendations.append(nextVol)
+                    }
+                }
+            }
+        }
+        
+        nextRecommendedComics = recommendations
+    }
+    
+    /// タイトルからシリーズ名を抽出（巻数などを除去）
+    private func extractSeriesTitle(from title: String) -> String {
+        // 数字や巻数表記を簡易的に除去
+        let patterns = [
+            #"\s*[\(\[\{].*?[\)\]\}]$"#, // 末尾の括弧内を除去
+            #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"# // 巻数表記を除去
+        ]
+        
+        var result = title
+        for pattern in patterns {
+            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                result = String(result[..<range.lowerBound])
+            }
+        }
+        
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? title : trimmed
     }
     
     /// DriveServiceに認証情報を設定

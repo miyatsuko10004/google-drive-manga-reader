@@ -2,12 +2,19 @@ import SwiftUI
 import Kingfisher
 
 struct RecentComicsShelfView: View {
+    let title: String
     @Binding var readingSession: LibraryView.ComicSession?
     let recentComics: [LocalComic]
     
+    init(title: String = "最近読んだ作品", readingSession: Binding<LibraryView.ComicSession?>, recentComics: [LocalComic]) {
+        self.title = title
+        self._readingSession = readingSession
+        self.recentComics = recentComics
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("最近読んだ作品")
+            Text(title)
                 .font(.headline)
                 .padding(.horizontal)
             
