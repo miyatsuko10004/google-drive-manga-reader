@@ -19,9 +19,13 @@ struct LibraryView: View {
     @State private var localRefreshTrigger = 0
     @State private var toast: ToastData?
     
-    struct ComicSession: Identifiable {
+    struct ComicSession: Identifiable, Equatable {
         var id: String { source.id }
         let source: any ComicSource
+        
+        static func == (lhs: ComicSession, rhs: ComicSession) -> Bool {
+            lhs.id == rhs.id
+        }
     }
     
     private let gridColumns = [
@@ -30,133 +34,74 @@ struct LibraryView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                // 背景
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-                
-                if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
-                    // 初回ローディング
-                    shimmerLoadingView
-                } else if let error = libraryViewModel.errorMessage {
-                    // エラー表示
-                    errorView(message: error)
-                } else if libraryViewModel.items.isEmpty {
-                    // 空の状態
-                    emptyView
-                } else {
-                    // ファイル一覧
-                    fileListContent
-                }
-                
-                // 一括ダウンロードプログレスバナー
-                if bulkDownloadManager.isDownloading {
-                    VStack {
-                        Spacer()
-                        bulkDownloadBanner
-                    }
+            mainContent
+        }
+    }
+    
+    @ViewBuilder
+    private var mainContent: some View {
+        ZStack {
+            // 背景
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+            
+            contentLayer
+            
+            // 一括ダウンロードプログレスバナー
+            if bulkDownloadManager.isDownloading {
+                VStack {
+                    Spacer()
+                    bulkDownloadBanner
                 }
             }
-            .toastView(toast: $toast)
-            .navigationTitle(libraryViewModel.currentFolderName)
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                toolbarContent
+        }
+        .toastView(toast: $toast)
+        .navigationTitle(libraryViewModel.currentFolderName)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            toolbarContent
+        }
+        .searchable(text: $libraryViewModel.searchText, prompt: "作品・フォルダを検索")
+        .refreshable {
+            await libraryViewModel.refresh()
+        }
+        .task {
+            libraryViewModel.configure(with: authViewModel.authorizer)
+            await libraryViewModel.loadFiles()
+        }
+        .onChange(of: selectedItem) { _, newValue in
+            if newValue == nil {
+                localRefreshTrigger += 1
             }
-            .searchable(text: $libraryViewModel.searchText, prompt: "作品・フォルダを検索")
-            .refreshable {
-                await libraryViewModel.refresh()
+        }
+        .onChange(of: readingSession) { _, newValue in
+            if newValue == nil {
+                libraryViewModel.refreshDownloadedComics()
             }
-            .task {
-                libraryViewModel.configure(with: authViewModel.authorizer)
-                await libraryViewModel.loadFiles()
-            }
-            .alert("サインアウト", isPresented: $showingSignOutAlert) {
-                Button("キャンセル", role: .cancel) {}
-                Button("サインアウト", role: .destructive) {
-                    authViewModel.signOut()
-                }
-            } message: {
-                Text("サインアウトしますか？")
-            }
-            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    if let folder = selectedFolderForBulk {
-                        bulkDownloadManager.downloadSeries(
-                            folder: folder,
-                            driveService: libraryViewModel.driveService,
-                            authorizer: authViewModel.authorizer,
-                            accessToken: authViewModel.accessToken,
-                            onComplete: { failedCount in
-                                Task { @MainActor in
-                                    if failedCount == 0 {
-                                        toast = ToastData(
-                                            title: "ダウンロード完了",
-                                            message: "\(folder.name) のダウンロードが完了しました",
-                                            type: .success
-                                        )
-                                    } else {
-                                        let title = "ダウンロード完了 (\(failedCount)件失敗)"
-                                        let message = "\(folder.name) のダウンロードが完了しましたが、"
-                                            + "一部失敗しました"
-                                        toast = ToastData(title: title, message: message, type: .error)
-                                    }
-                                }
-                            },
-                            onError: { error in
-                                Task { @MainActor in
-                                    toast = ToastData(
-                                        title: "ダウンロード失敗",
-                                        message: error.localizedDescription,
-                                        type: .error
-                                    )
-                                }
-                            }
-                        )
-                        toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
-                    }
-                }
-            } message: {
-                if let folder = selectedFolderForBulk {
-                    Text("\(folder.name)内のアーカイブを一括ダウンロードします。")
-                }
-            }
-            .onChange(of: selectedItem) { _, newValue in
-                if newValue == nil {
-                    localRefreshTrigger += 1
-                }
-            }
-            .sheet(item: $selectedItem) { item in
-                // ダウンロードターゲットを決定
-                let target: DownloadTarget = {
-                    if item.isArchive {
-                        return .file(item)
-                    } else {
-                        // 画像ファイルの場合は親フォルダをダウンロード
-                        return .folder(
-                            id: libraryViewModel.currentFolderId ?? "root",
-                            name: libraryViewModel.currentFolderName
-                        )
-                    }
-                }()
-                
-                DownloadSheet(
-                    target: target,
-                    isPresented: Binding(
-                        get: { self.selectedItem != nil },
-                        set: { if !$0 { self.selectedItem = nil } }
-                    ),
-                    onComplete: { comic in
-                        // ローカルコミックとして開く
-                        self.selectedItem = nil
-                        readingSession = ComicSession(source: LocalComicSource(comic: comic))
-                    }
-                )
-            }
-            .fullScreenCover(item: $readingSession) { session in
-                ReaderView(source: session.source)
-            }
+        }
+        .modifier(AlertsAndSheetsModifier(
+            showingSignOutAlert: $showingSignOutAlert,
+            showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
+            selectedItem: $selectedItem,
+            selectedFolderForBulk: $selectedFolderForBulk,
+            readingSession: $readingSession,
+            toast: $toast,
+            authViewModel: authViewModel,
+            libraryViewModel: libraryViewModel,
+            bulkDownloadManager: bulkDownloadManager
+        ))
+    }
+    
+    @ViewBuilder
+    private var contentLayer: some View {
+        if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
+            shimmerLoadingView
+        } else if let error = libraryViewModel.errorMessage {
+            errorView(message: error)
+        } else if libraryViewModel.items.isEmpty {
+            emptyView
+        } else {
+            fileListContent
         }
     }
     
@@ -168,40 +113,14 @@ struct LibraryView: View {
     private var fileListContent: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // 最近読んだ作品（ルート階層でのみ表示）
-                if libraryViewModel.folderPath.isEmpty && !libraryViewModel.recentComics.isEmpty {
-                    RecentComicsShelfView(
-                        readingSession: $readingSession,
-                        recentComics: libraryViewModel.recentComics
-                    )
-                    Divider().padding(.vertical, 8)
-                }
+                recommendationSection
                 
                 // パンくずリスト
                 if !libraryViewModel.folderPath.isEmpty {
                     breadcrumbView
                 }
                 
-                // アイテム一覧
-                switch libraryViewModel.viewMode {
-                case .grid:
-                    DriveItemGridView(
-                        gridColumns: gridColumns,
-                        libraryViewModel: libraryViewModel,
-                        bulkDownloadManager: bulkDownloadManager,
-                        selectedFolderForBulk: $selectedFolderForBulk,
-                        showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
-                        onItemTap: handleItemTap
-                    )
-                case .list:
-                    DriveItemListView(
-                        libraryViewModel: libraryViewModel,
-                        bulkDownloadManager: bulkDownloadManager,
-                        selectedFolderForBulk: $selectedFolderForBulk,
-                        showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
-                        onItemTap: handleItemTap
-                    )
-                }
+                itemsSection
                 
                 // さらに読み込み
                 if libraryViewModel.hasMoreItems {
@@ -209,6 +128,54 @@ struct LibraryView: View {
                 }
             }
             .padding()
+        }
+    }
+    
+    /// おすすめセクション
+    @ViewBuilder
+    private var recommendationSection: some View {
+        if libraryViewModel.folderPath.isEmpty {
+            if !libraryViewModel.nextRecommendedComics.isEmpty {
+                RecentComicsShelfView(
+                    title: "続きを読みませんか？",
+                    readingSession: $readingSession,
+                    recentComics: libraryViewModel.nextRecommendedComics
+                )
+                .padding(.bottom, 8)
+            }
+            
+            if !libraryViewModel.recentComics.isEmpty {
+                RecentComicsShelfView(
+                    title: "最近読んだ作品",
+                    readingSession: $readingSession,
+                    recentComics: libraryViewModel.recentComics
+                )
+                Divider().padding(.vertical, 8)
+            }
+        }
+    }
+    
+    /// アイテム一覧セクション
+    @ViewBuilder
+    private var itemsSection: some View {
+        switch libraryViewModel.viewMode {
+        case .grid:
+            DriveItemGridView(
+                gridColumns: gridColumns,
+                libraryViewModel: libraryViewModel,
+                bulkDownloadManager: bulkDownloadManager,
+                selectedFolderForBulk: $selectedFolderForBulk,
+                showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
+                onItemTap: handleItemTap
+            )
+        case .list:
+            DriveItemListView(
+                libraryViewModel: libraryViewModel,
+                bulkDownloadManager: bulkDownloadManager,
+                selectedFolderForBulk: $selectedFolderForBulk,
+                showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
+                onItemTap: handleItemTap
+            )
         }
     }
     
@@ -684,3 +651,104 @@ struct FolderThumbnailView: View {
         .background(Color(.systemGray5))
     }
 }
+
+// MARK: - View Modifiers
+
+struct AlertsAndSheetsModifier: ViewModifier {
+    @Binding var showingSignOutAlert: Bool
+    @Binding var showingBulkDownloadConfirmation: Bool
+    @Binding var selectedItem: DriveItem?
+    @Binding var selectedFolderForBulk: DriveItem?
+    @Binding var readingSession: LibraryView.ComicSession?
+    @Binding var toast: ToastData?
+    
+    let authViewModel: AuthViewModel
+    let libraryViewModel: LibraryViewModel
+    let bulkDownloadManager: BulkDownloadManager
+    
+    func body(content: Content) -> some View {
+        content
+            .alert("サインアウト", isPresented: $showingSignOutAlert) {
+                Button("キャンセル", role: .cancel) {}
+                Button("サインアウト", role: .destructive) {
+                    authViewModel.signOut()
+                }
+            } message: {
+                Text("サインアウトしますか？")
+            }
+            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
+                Button("キャンセル", role: .cancel) {}
+                Button("ダウンロード") {
+                    if let folder = selectedFolderForBulk {
+                        bulkDownloadManager.downloadSeries(
+                            folder: folder,
+                            driveService: libraryViewModel.driveService,
+                            authorizer: authViewModel.authorizer,
+                            accessToken: authViewModel.accessToken,
+                            onComplete: { failedCount in
+                                Task { @MainActor in
+                                    if failedCount == 0 {
+                                        toast = ToastData(
+                                            title: "ダウンロード完了",
+                                            message: "\(folder.name) のダウンロードが完了しました",
+                                            type: .success
+                                        )
+                                    } else {
+                                        let title = "ダウンロード完了 (\(failedCount)件失敗)"
+                                        let message = "\(folder.name) のダウンロードが完了しましたが、"
+                                            + "一部失敗しました"
+                                        toast = ToastData(title: title, message: message, type: .error)
+                                    }
+                                }
+                            },
+                            onError: { error in
+                                Task { @MainActor in
+                                    toast = ToastData(
+                                        title: "ダウンロード失敗",
+                                        message: error.localizedDescription,
+                                        type: .error
+                                    )
+                                }
+                            }
+                        )
+                        toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
+                    }
+                }
+            } message: {
+                if let folder = selectedFolderForBulk {
+                    Text("\(folder.name)内のアーカイブを一括ダウンロードします。")
+                }
+            }
+            .sheet(item: $selectedItem) { item in
+                // ダウンロードターゲットを決定
+                let target: DownloadTarget = {
+                    if item.isArchive {
+                        return .file(item)
+                    } else {
+                        // 画像ファイルの場合は親フォルダをダウンロード
+                        return .folder(
+                            id: libraryViewModel.currentFolderId ?? "root",
+                            name: libraryViewModel.currentFolderName
+                        )
+                    }
+                }()
+                
+                DownloadSheet(
+                    target: target,
+                    isPresented: Binding(
+                        get: { self.selectedItem != nil },
+                        set: { if !$0 { self.selectedItem = nil } }
+                    ),
+                    onComplete: { comic in
+                        // ローカルコミックとして開く
+                        self.selectedItem = nil
+                        readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: comic))
+                    }
+                )
+            }
+            .fullScreenCover(item: $readingSession) { session in
+                ReaderView(source: session.source)
+            }
+    }
+}
+

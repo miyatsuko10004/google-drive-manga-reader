@@ -45,6 +45,9 @@ struct ReaderView: View {
             .onChange(of: geometry.size) { _, newSize in
                 viewModel.isLandscape = newSize.width > newSize.height
             }
+            .onChange(of: viewModel.currentPage) { _, _ in
+                saveProgress()
+            }
         }
         .ignoresSafeArea()
         .statusBarHidden(!viewModel.showUI)
@@ -178,8 +181,10 @@ struct ReaderView: View {
     private var headerBar: some View {
         HStack {
             Button {
-                saveProgress()
-                dismiss()
+                Task {
+                    await saveProgress()
+                    dismiss()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.title2)
@@ -346,9 +351,13 @@ struct ReaderView: View {
     
     // MARK: - Progress Save
     
+    private func saveProgress() async {
+        await source.saveProgress(page: viewModel.currentPage)
+    }
+    
     private func saveProgress() {
         Task {
-            await source.saveProgress(page: viewModel.currentPage)
+            await saveProgress()
         }
     }
 }
