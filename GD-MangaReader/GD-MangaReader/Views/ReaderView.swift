@@ -471,6 +471,7 @@ final class ReaderViewModel {
     
     var showNextVolumeSuggestion: Bool = false
     private(set) var nextComic: LocalComic?
+    private var checkNextVolumeTask: Task<Void, Never>?
     
     var isSpreadMode: Bool {
         return isSpreadEnabled && isLandscape
@@ -483,24 +484,34 @@ final class ReaderViewModel {
         self.currentPage = source.lastReadPage
         
         // 次の巻があるか事前にチェック
-        Task {
+        checkNextVolumeTask = Task {
             await checkForNextVolume()
         }
+    }
+    
+    deinit {
+        checkNextVolumeTask?.cancel()
     }
     
     private func checkForNextVolume() async {
         guard let currentLocal = source as? LocalComicSource else { return }
         let currentTitle = currentLocal.title
         
+        if Task.isCancelled { return }
+        
         // 全てのコミックを取得
         guard let allComics = try? LocalStorageService.shared.loadComics() else { return }
         
+        if Task.isCancelled { return }
+        
         // 同じシリーズと思われるものを抽出してソート
-        // 例: "漫画 第01巻", "漫画 第02巻" -> 接頭辞が一致するものを探す
-        let prefix = currentTitle.prefix(max(5, currentTitle.count - 5))
+        // 巻数サフィックス（例: " 第01巻"）を削除してベースタイトルを特定
+        let prefix = currentTitle.replacingOccurrences(of: "\\s*第\\d+巻$", with: "", options: .regularExpression)
         let seriesVolumes = allComics
             .filter { $0.title.hasPrefix(prefix) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        
+        if Task.isCancelled { return }
         
         if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == currentLocal.id }),
            currentIndex + 1 < seriesVolumes.count {
@@ -541,14 +552,21 @@ final class ReaderViewModel {
     func normalizePageIndex(_ page: Int) -> Int {
         guard isSpreadMode else { return max(0, min(pageCount - 1, page)) }
         
+        let normalized: Int
         if !isSpreadShifted {
-            if page <= 0 { return 0 }
-            // 1, 2 -> 1 / 3, 4 -> 3 ... (奇数に丸める)
-            return ((page - 1) / 2) * 2 + 1
+            if page <= 0 {
+                normalized = 0
+            } else {
+                // 1, 2 -> 1 / 3, 4 -> 3 ... (奇数に丸める)
+                normalized = ((page - 1) / 2) * 2 + 1
+            }
         } else {
             // 0, 1 -> 0 / 2, 3 -> 2 ... (偶数に丸める)
-            return (page / 2) * 2
+            normalized = (page / 2) * 2
         }
+        
+        // 有効な範囲内にクランプ（pageCount - 1 を超えないようにする）
+        return max(0, min(normalized, pageCount - 1))
     }
     
     func goToNextPage() {
