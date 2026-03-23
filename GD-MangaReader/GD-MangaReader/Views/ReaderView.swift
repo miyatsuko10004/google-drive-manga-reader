@@ -138,6 +138,7 @@ struct ReaderView: View {
                     index: leftIndex,
                     geometry: geometry,
                     isHalfWidth: true,
+                    alignment: viewModel.isSpreadGapRemoved ? .trailing : .center,
                     currentPage: viewModel.currentPage
                 )
             } else {
@@ -151,6 +152,7 @@ struct ReaderView: View {
                     index: rightIndex,
                     geometry: geometry,
                     isHalfWidth: true,
+                    alignment: viewModel.isSpreadGapRemoved ? .leading : .center,
                     currentPage: viewModel.currentPage
                 )
             } else {
@@ -237,6 +239,11 @@ struct ReaderView: View {
             if viewModel.isLandscape {
                 Section {
                     Toggle("見開き表示", isOn: $viewModel.isSpreadEnabled)
+                    if viewModel.isSpreadEnabled {
+                        Toggle("左右入れ替え", isOn: $viewModel.isSpreadSwapped)
+                        Toggle("半ページずらす", isOn: $viewModel.isSpreadShifted)
+                        Toggle("中央寄せ（空白除去）", isOn: $viewModel.isSpreadGapRemoved)
+                    }
                 }
             }
         } label: {
@@ -259,7 +266,7 @@ struct ReaderView: View {
                 Slider(
                     value: Binding(
                         get: { Double(viewModel.currentPage) },
-                        set: { viewModel.currentPage = Int($0) }
+                        set: { viewModel.currentPage = viewModel.normalizePageIndex(Int($0)) }
                     ),
                     in: 0...Double(max(0, source.pageCount - 1)),
                     step: 1
@@ -378,6 +385,9 @@ final class ReaderViewModel {
     var isRightToLeft: Bool = true
     var readingMode: ReadingMode = .horizontal
     var isSpreadEnabled: Bool = true
+    var isSpreadSwapped: Bool = false
+    var isSpreadShifted: Bool = false
+    var isSpreadGapRemoved: Bool = false
     var isLandscape: Bool = false
     
     var isSpreadMode: Bool {
@@ -401,9 +411,15 @@ final class ReaderViewModel {
     
     var pageIndices: [Int] {
         if isSpreadMode {
-            // 見開きモード：表紙（インデックス0）は単独、以降2ページずつ
-            var indices: [Int] = [0]
-            var current = 1
+            var indices: [Int] = []
+            var current = 0
+            
+            if !isSpreadShifted {
+                // 1ページ目（表紙）は単独
+                indices.append(0)
+                current = 1
+            }
+            
             while current < pageCount {
                 indices.append(current)
                 current += 2
@@ -411,6 +427,20 @@ final class ReaderViewModel {
             return indices
         } else {
             return Array(0..<pageCount)
+        }
+    }
+    
+    /// 任意のページ番号を、現在の表示モードにおける有効な開始インデックスに変換する
+    func normalizePageIndex(_ page: Int) -> Int {
+        guard isSpreadMode else { return max(0, min(pageCount - 1, page)) }
+        
+        if !isSpreadShifted {
+            if page <= 0 { return 0 }
+            // 1, 2 -> 1 / 3, 4 -> 3 ... (奇数に丸める)
+            return ((page - 1) / 2) * 2 + 1
+        } else {
+            // 0, 1 -> 0 / 2, 3 -> 2 ... (偶数に丸める)
+            return (page / 2) * 2
         }
     }
     
@@ -432,21 +462,44 @@ final class ReaderViewModel {
     
     /// 見開きページのインデックスを取得（左、右）
     func getSpreadIndices(for baseIndex: Int) -> (Int?, Int?) {
-        // 表紙（0）は常に単独で中央（右側に配置して左を空けるなど実装依存）
-        if baseIndex == 0 {
-            return (nil, 0)
+        if !isSpreadShifted && baseIndex == 0 {
+            // シフトなしの場合、0ページ目は単独
+            var left: Int?
+            var right: Int?
+            if isRightToLeft {
+                left = nil
+                right = 0
+            } else {
+                left = 0
+                right = nil
+            }
+            if isSpreadSwapped {
+                swap(&left, &right)
+            }
+            return (left, right)
         }
         
         let targetIndex = baseIndex
         let nextIndex = targetIndex + 1 < pageCount ? targetIndex + 1 : nil
         
+        var left: Int?
+        var right: Int?
+        
         if isRightToLeft {
             // 日本の漫画（右開き）：若い数字が右、次の数字が左
-            return (nextIndex, targetIndex)
+            left = nextIndex
+            right = targetIndex
         } else {
             // アメコミ等（左開き）：若い数字が左、次の数字が右
-            return (targetIndex, nextIndex)
+            left = targetIndex
+            right = nextIndex
         }
+        
+        if isSpreadSwapped {
+            swap(&left, &right)
+        }
+        
+        return (left, right)
     }
 }
 
@@ -457,6 +510,7 @@ struct ZoomableImageView: View {
     let index: Int
     let geometry: GeometryProxy
     var isHalfWidth: Bool = false
+    var alignment: Alignment = .center
     let currentPage: Int
     
     @State private var scale: CGFloat = 1.0
@@ -472,7 +526,7 @@ struct ZoomableImageView: View {
         
         AsyncImageView(source: source, index: index)
             .aspectRatio(contentMode: .fit)
-            .frame(width: imageWidth, height: geometry.size.height)
+            .frame(width: imageWidth, height: geometry.size.height, alignment: alignment)
             .clipped()
             .contentShape(Rectangle())
             .scaleEffect(scale)
