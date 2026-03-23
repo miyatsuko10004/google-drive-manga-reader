@@ -384,11 +384,17 @@ final class ReaderViewModel {
     var showUI: Bool = true
     var isRightToLeft: Bool = true
     var readingMode: ReadingMode = .horizontal
-    var isSpreadEnabled: Bool = true
+    var isSpreadEnabled: Bool = true {
+        didSet { currentPage = normalizePageIndex(currentPage) }
+    }
     var isSpreadSwapped: Bool = false
-    var isSpreadShifted: Bool = false
+    var isSpreadShifted: Bool = false {
+        didSet { currentPage = normalizePageIndex(currentPage) }
+    }
     var isSpreadGapRemoved: Bool = false
-    var isLandscape: Bool = false
+    var isLandscape: Bool = false {
+        didSet { currentPage = normalizePageIndex(currentPage) }
+    }
     
     var isSpreadMode: Bool {
         return isSpreadEnabled && isLandscape
