@@ -460,8 +460,8 @@ final class ReaderViewModel {
     var isSpreadEnabled: Bool = true {
         didSet { currentPage = normalizePageIndex(currentPage) }
     }
-    var isSpreadSwapped: Bool = false
-    var isSpreadShifted: Bool = false {
+    var isSpreadSwapped: Bool = true
+    var isSpreadShifted: Bool = true {
         didSet { currentPage = normalizePageIndex(currentPage) }
     }
     var isSpreadGapRemoved: Bool = true
