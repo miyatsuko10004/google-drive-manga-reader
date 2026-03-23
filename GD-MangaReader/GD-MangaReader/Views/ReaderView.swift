@@ -35,6 +35,11 @@ struct ReaderView: View {
                 if viewModel.showUI {
                     uiOverlay
                 }
+                
+                // 次の巻サジェスト
+                if viewModel.showNextVolumeSuggestion, let nextComic = viewModel.nextComic {
+                    nextVolumeOverlay(nextComic: nextComic)
+                }
             }
             .onTapGesture(coordinateSpace: .local) { location in
                 handleTap(at: location, in: geometry.size)
@@ -367,6 +372,74 @@ struct ReaderView: View {
             await saveProgress()
         }
     }
+    
+    // MARK: - Next Volume Suggestion View
+    
+    private func nextVolumeOverlay(nextComic: LocalComic) -> some View {
+        ZStack {
+            Color.black.opacity(0.8).ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                Text("最終ページです")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.8))
+                
+                VStack(spacing: 8) {
+                    Text("次の巻を読みますか？")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    Text(nextComic.title)
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                HStack(spacing: 20) {
+                    Button {
+                        viewModel.showNextVolumeSuggestion = false
+                    } label: {
+                        Text("閉じる")
+                            .foregroundColor(.white)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 24)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(25)
+                    }
+                    
+                    Button {
+                        // 次の巻を開く
+                        // 実際には現在開いているReaderViewを閉じて、
+                        // 呼び出し元で次の巻のReaderViewを開く必要がある。
+                        // ここではNotificationCenterやDelegate等を使って親に通知する想定。
+                        NotificationCenter.default.post(
+                            name: Notification.Name("OpenNextVolume"),
+                            object: nextComic
+                        )
+                        dismiss()
+                    } label: {
+                        Text("次を読む")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 32)
+                            .background(Color.orange)
+                            .cornerRadius(25)
+                    }
+                }
+            }
+            .padding(32)
+            .background(Color(white: 0.1))
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .padding(20)
+        }
+        .transition(.opacity)
+    }
 }
 
 // MARK: - Reading Mode
@@ -391,10 +464,13 @@ final class ReaderViewModel {
     var isSpreadShifted: Bool = false {
         didSet { currentPage = normalizePageIndex(currentPage) }
     }
-    var isSpreadGapRemoved: Bool = false
+    var isSpreadGapRemoved: Bool = true
     var isLandscape: Bool = false {
         didSet { currentPage = normalizePageIndex(currentPage) }
     }
+    
+    var showNextVolumeSuggestion: Bool = false
+    private(set) var nextComic: LocalComic?
     
     var isSpreadMode: Bool {
         return isSpreadEnabled && isLandscape
@@ -405,6 +481,31 @@ final class ReaderViewModel {
     init(source: any ComicSource) {
         self.source = source
         self.currentPage = source.lastReadPage
+        
+        // 次の巻があるか事前にチェック
+        Task {
+            await checkForNextVolume()
+        }
+    }
+    
+    private func checkForNextVolume() async {
+        guard let currentLocal = source as? LocalComicSource else { return }
+        let currentTitle = currentLocal.title
+        
+        // 全てのコミックを取得
+        guard let allComics = try? LocalStorageService.shared.loadComics() else { return }
+        
+        // 同じシリーズと思われるものを抽出してソート
+        // 例: "漫画 第01巻", "漫画 第02巻" -> 接頭辞が一致するものを探す
+        let prefix = currentTitle.prefix(max(5, currentTitle.count - 5))
+        let seriesVolumes = allComics
+            .filter { $0.title.hasPrefix(prefix) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        
+        if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == currentLocal.id }),
+           currentIndex + 1 < seriesVolumes.count {
+            self.nextComic = seriesVolumes[currentIndex + 1]
+        }
     }
     
     var pageCount: Int {
@@ -454,11 +555,25 @@ final class ReaderViewModel {
         if currentPage < pageCount - 1 {
             let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
             let newIndex = min(pageIndices.count - 1, currentIndex + 1)
-            currentPage = pageIndices[newIndex]
+            let nextPageIndex = pageIndices[newIndex]
+            
+            // すでに最後のインデックスにいて、さらに次へ行こうとした場合
+            if currentPage == nextPageIndex && nextComic != nil {
+                showNextVolumeSuggestion = true
+            } else {
+                currentPage = nextPageIndex
+            }
+        } else if nextComic != nil {
+            showNextVolumeSuggestion = true
         }
     }
     
     func goToPreviousPage() {
+        if showNextVolumeSuggestion {
+            showNextVolumeSuggestion = false
+            return
+        }
+        
         if currentPage > 0 {
             let currentIndex = pageIndices.firstIndex(of: currentPage) ?? 0
             let newIndex = max(0, currentIndex - 1)
