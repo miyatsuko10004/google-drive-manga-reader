@@ -453,25 +453,44 @@ enum ReadingMode: String, CaseIterable {
 
 @Observable
 final class ReaderViewModel {
-    var currentPage: Int
+    var currentPage: Int {
+        didSet {
+            Task { @MainActor in
+                checkIfLastPageReached()
+            }
+        }
+    }
     var showUI: Bool = true
     var isRightToLeft: Bool = true
     var readingMode: ReadingMode = .horizontal
     var isSpreadEnabled: Bool = true {
-        didSet { currentPage = normalizePageIndex(currentPage) }
+        didSet { 
+            Task { @MainActor in
+                currentPage = normalizePageIndex(currentPage) 
+            }
+        }
     }
     var isSpreadSwapped: Bool = true
     var isSpreadShifted: Bool = true {
-        didSet { currentPage = normalizePageIndex(currentPage) }
+        didSet { 
+            Task { @MainActor in
+                currentPage = normalizePageIndex(currentPage) 
+            }
+        }
     }
     var isSpreadGapRemoved: Bool = true
     var isLandscape: Bool = false {
-        didSet { currentPage = normalizePageIndex(currentPage) }
+        didSet { 
+            Task { @MainActor in
+                currentPage = normalizePageIndex(currentPage) 
+            }
+        }
     }
     
     var showNextVolumeSuggestion: Bool = false
     private(set) var nextComic: LocalComic?
     private var checkNextVolumeTask: Task<Void, Never>?
+    private var suggestionTask: Task<Void, Never>?
     
     var isSpreadMode: Bool {
         return isSpreadEnabled && isLandscape
@@ -479,6 +498,7 @@ final class ReaderViewModel {
     
     private let source: any ComicSource
     
+    @MainActor
     init(source: any ComicSource) {
         self.source = source
         self.currentPage = source.lastReadPage
@@ -486,11 +506,14 @@ final class ReaderViewModel {
         // 次の巻があるか事前にチェック
         checkNextVolumeTask = Task {
             await checkForNextVolume()
+            // 初期表示で最終ページの場合に備える
+            checkIfLastPageReached()
         }
     }
     
     deinit {
         checkNextVolumeTask?.cancel()
+        suggestionTask?.cancel()
     }
     
     private func checkForNextVolume() async {
@@ -505,8 +528,10 @@ final class ReaderViewModel {
         if Task.isCancelled { return }
         
         // 同じシリーズと思われるものを抽出してソート
-        // 巻数サフィックス（例: " 第01巻"）を削除してベースタイトルを特定
-        let prefix = currentTitle.replacingOccurrences(of: "\\s*第\\d+巻$", with: "", options: .regularExpression)
+        // 巻数サフィックス（例: " 第01巻", " Vol.1", " (1)", " 01"）を削除してベースタイトルを特定
+        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
+        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        
         let seriesVolumes = allComics
             .filter { $0.title.hasPrefix(prefix) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -515,7 +540,37 @@ final class ReaderViewModel {
         
         if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == currentLocal.id }),
            currentIndex + 1 < seriesVolumes.count {
-            self.nextComic = seriesVolumes[currentIndex + 1]
+            await MainActor.run {
+                self.nextComic = seriesVolumes[currentIndex + 1]
+            }
+        }
+    }
+    
+    @MainActor
+    private func checkIfLastPageReached() {
+        suggestionTask?.cancel()
+        
+        // 次の巻がない、または最終ページでない場合は表示しない
+        guard let lastIndex = pageIndices.last,
+              currentPage == lastIndex,
+              nextComic != nil else {
+            showNextVolumeSuggestion = false
+            return
+        }
+        
+        // すでに表示されている場合は何もしない
+        if showNextVolumeSuggestion { return }
+        
+        // 1秒後にサジェストを表示
+        suggestionTask = Task {
+            try? await Task.sleep(nanoseconds: 1 * 1_000_000_000)
+            if !Task.isCancelled {
+                await MainActor.run {
+                    withAnimation(.easeInOut) {
+                        showNextVolumeSuggestion = true
+                    }
+                }
+            }
         }
     }
     
@@ -577,18 +632,24 @@ final class ReaderViewModel {
             
             // すでに最後のインデックスにいて、さらに次へ行こうとした場合
             if currentPage == nextPageIndex && nextComic != nil {
-                showNextVolumeSuggestion = true
+                withAnimation {
+                    showNextVolumeSuggestion = true
+                }
             } else {
                 currentPage = nextPageIndex
             }
         } else if nextComic != nil {
-            showNextVolumeSuggestion = true
+            withAnimation {
+                showNextVolumeSuggestion = true
+            }
         }
     }
     
     func goToPreviousPage() {
         if showNextVolumeSuggestion {
-            showNextVolumeSuggestion = false
+            withAnimation {
+                showNextVolumeSuggestion = false
+            }
             return
         }
         
