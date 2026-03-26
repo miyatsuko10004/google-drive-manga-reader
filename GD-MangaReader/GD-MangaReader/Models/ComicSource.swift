@@ -7,6 +7,7 @@
 import Foundation
 import UIKit
 import SwiftUI
+import ImageIO
 
 /// 漫画のページデータを提供するプロトコル
 protocol ComicSource {
@@ -22,6 +23,8 @@ protocol ComicSource {
     func saveProgress(page: Int) async
     /// 最後に読んだページ
     var lastReadPage: Int { get }
+    /// 指定ページが「見開き画像（横長）」かどうか
+    func isWidePage(at index: Int) async -> Bool
 }
 
 // MARK: - Local Comic Source
@@ -53,6 +56,23 @@ struct LocalComicSource: ComicSource {
         }.value
     }
     
+    func isWidePage(at index: Int) async -> Bool {
+        guard index >= 0 && index < comic.imagePaths.count else { return false }
+        let url = comic.imagePaths[index]
+        
+        return await Task.detached(priority: .userInitiated) {
+            // 画像のサイズ情報のみを取得（メモリ節約のため）
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+                  let height = properties[kCGImagePropertyPixelHeight] as? CGFloat else {
+                return false
+            }
+            // 横幅が高さの1.2倍以上あれば見開きとみなす
+            return width > height * 1.2
+        }.value
+    }
+    
     func saveProgress(page: Int) async {
         var updatedComic = comic
         updatedComic.lastReadPage = page
@@ -79,8 +99,6 @@ struct LocalComicSource: ComicSource {
 
 // MARK: - Remote Comic Source
 
-// MARK: - Remote Comic Source
-
 /// Google Drive上のフォルダを直接読むリモートソース
 final class RemoteComicSource: ComicSource {
     let id: String
@@ -102,9 +120,6 @@ final class RemoteComicSource: ComicSource {
     }
     
     func image(at index: Int) async throws -> UIImage? {
-        // キャッシュにあれば返す（MainActor前提ならロック不要だが、念のためロックするか、あるいはMainActorにするか）
-        // ここでは簡易的にActorなしで実装するが、UIからの呼び出しはMainActorで行われる想定
-        // データ競合を避けるため @MainActor をつけるのが安全
         return try await fetchImage(at: index)
     }
     
@@ -117,21 +132,19 @@ final class RemoteComicSource: ComicSource {
         }
         
         let file = files[index]
-        print("📥 [Remote] Fetching image: \(file.name) (\(index))")
         
-        // DriveService (MainActor) から取得
+        // DriveService から取得
         guard let data = try? await driveService.downloadFileData(fileId: file.id) else {
             return nil
         }
         
         guard let uiImage = UIImage(data: data) else { return nil }
         
-        // ダウンサンプリング（重い処理はDetached Taskで）
+        // ダウンサンプリング
         let processedImage = await Task.detached(priority: .userInitiated) {
             return Self.downsample(image: uiImage, to: UIScreen.main.bounds.size)
         }.value
         
-        // キャッシュ制御
         if imageCache.count > 20 {
             imageCache.removeAll()
         }
@@ -142,6 +155,11 @@ final class RemoteComicSource: ComicSource {
     
     func saveProgress(page: Int) async {
         self.lastReadPage = page
+    }
+    
+    func isWidePage(at index: Int) async -> Bool {
+        // リモートの場合は簡易化のため常に false
+        return false
     }
     
     private static func downsample(image: UIImage, to targetSize: CGSize) -> UIImage {

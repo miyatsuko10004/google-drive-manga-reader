@@ -165,6 +165,21 @@ struct ReaderView: View {
                     .frame(width: geometry.size.width / 2)
             }
         }
+        .overlay(alignment: .bottom) {
+            if viewModel.isPreparingNextVolume {
+                VStack(spacing: 8) {
+                    ProgressView()
+                        .tint(.orange)
+                    Text("次の巻を確認中...")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                .padding()
+                .background(Color.black.opacity(0.6))
+                .cornerRadius(12)
+                .padding(.bottom, 100)
+            }
+        }
     }
     
     // MARK: - UI Overlay
@@ -229,12 +244,18 @@ struct ReaderView: View {
         Menu {
             // 読み方向
             Section("読み方向") {
-                Toggle("右から左（日本式）", isOn: $viewModel.isRightToLeft)
+                Toggle("右から左（日本式）", isOn: Binding(
+                    get: { viewModel.isRightToLeft },
+                    set: { viewModel.isRightToLeft = $0 }
+                ))
             }
             
             // 読み方モード
             Section("表示モード") {
-                Picker("表示モード", selection: $viewModel.readingMode) {
+                Picker("表示モード", selection: Binding(
+                    get: { viewModel.readingMode },
+                    set: { viewModel.readingMode = $0 }
+                )) {
                     Text("横読み").tag(ReadingMode.horizontal)
                     Text("縦読み").tag(ReadingMode.vertical)
                 }
@@ -243,13 +264,32 @@ struct ReaderView: View {
             // 見開き表示（横向き時のみ有効）
             if viewModel.isLandscape {
                 Section {
-                    Toggle("見開き表示", isOn: $viewModel.isSpreadEnabled)
+                    Toggle("見開き表示", isOn: Binding(
+                        get: { viewModel.isSpreadEnabled },
+                        set: { viewModel.isSpreadEnabled = $0 }
+                    ))
                     if viewModel.isSpreadEnabled {
-                        Toggle("左右入れ替え", isOn: $viewModel.isSpreadSwapped)
-                        Toggle("半ページずらす", isOn: $viewModel.isSpreadShifted)
-                        Toggle("中央寄せ（空白除去）", isOn: $viewModel.isSpreadGapRemoved)
+                        Toggle("左右入れ替え", isOn: Binding(
+                            get: { viewModel.isSpreadSwapped },
+                            set: { viewModel.isSpreadSwapped = $0 }
+                        ))
+                        Toggle("半ページずらす", isOn: Binding(
+                            get: { viewModel.isSpreadShifted },
+                            set: { viewModel.isSpreadShifted = $0 }
+                        ))
+                        Toggle("中央寄せ（空白除去）", isOn: Binding(
+                            get: { viewModel.isSpreadGapRemoved },
+                            set: { viewModel.isSpreadGapRemoved = $0 }
+                        ))
                     }
                 }
+            }
+            
+            Section("一般設定") {
+                Toggle("読了後に自動削除", isOn: Binding(
+                    get: { viewModel.autoDeleteAfterRead },
+                    set: { viewModel.autoDeleteAfterRead = $0 }
+                ))
             }
         } label: {
             Image(systemName: "gearshape")
@@ -409,10 +449,10 @@ struct ReaderView: View {
                     }
                     
                     Button {
+                        // 現在の巻の終了処理（自動削除など）
+                        viewModel.finalizeCurrentVolume()
+                        
                         // 次の巻を開く
-                        // 実際には現在開いているReaderViewを閉じて、
-                        // 呼び出し元で次の巻のReaderViewを開く必要がある。
-                        // ここではNotificationCenterやDelegate等を使って親に通知する想定。
                         NotificationCenter.default.post(
                             name: Notification.Name("OpenNextVolume"),
                             object: nextComic
@@ -453,6 +493,54 @@ enum ReadingMode: String, CaseIterable {
 
 @Observable
 final class ReaderViewModel {
+    // MARK: - Settings (Persistent)
+    
+    var isRightToLeft: Bool {
+        get { UserDefaults.standard.bool(forKey: "isRightToLeft") }
+        set { UserDefaults.standard.set(newValue, forKey: "isRightToLeft") }
+    }
+    
+    var readingMode: ReadingMode {
+        get { 
+            let val = UserDefaults.standard.string(forKey: "readingMode") ?? ReadingMode.horizontal.rawValue
+            return ReadingMode(rawValue: val) ?? .horizontal
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "readingMode") }
+    }
+    
+    var isSpreadEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "isSpreadEnabled") as? Bool ?? true }
+        set { 
+            UserDefaults.standard.set(newValue, forKey: "isSpreadEnabled")
+            Task { @MainActor in currentPage = normalizePageIndex(currentPage) }
+        }
+    }
+    
+    var isSpreadSwapped: Bool {
+        get { UserDefaults.standard.bool(forKey: "isSpreadSwapped") }
+        set { UserDefaults.standard.set(newValue, forKey: "isSpreadSwapped") }
+    }
+    
+    var isSpreadShifted: Bool {
+        get { UserDefaults.standard.bool(forKey: "isSpreadShifted") }
+        set { 
+            UserDefaults.standard.set(newValue, forKey: "isSpreadShifted")
+            Task { @MainActor in currentPage = normalizePageIndex(currentPage) }
+        }
+    }
+    
+    var isSpreadGapRemoved: Bool {
+        get { UserDefaults.standard.object(forKey: "isSpreadGapRemoved") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "isSpreadGapRemoved") }
+    }
+    
+    var autoDeleteAfterRead: Bool {
+        get { UserDefaults.standard.bool(forKey: "autoDeleteAfterRead") }
+        set { UserDefaults.standard.set(newValue, forKey: "autoDeleteAfterRead") }
+    }
+    
+    // MARK: - State
+    
     var currentPage: Int {
         didSet {
             Task { @MainActor in
@@ -461,24 +549,6 @@ final class ReaderViewModel {
         }
     }
     var showUI: Bool = true
-    var isRightToLeft: Bool = true
-    var readingMode: ReadingMode = .horizontal
-    var isSpreadEnabled: Bool = true {
-        didSet { 
-            Task { @MainActor in
-                currentPage = normalizePageIndex(currentPage) 
-            }
-        }
-    }
-    var isSpreadSwapped: Bool = true
-    var isSpreadShifted: Bool = true {
-        didSet { 
-            Task { @MainActor in
-                currentPage = normalizePageIndex(currentPage) 
-            }
-        }
-    }
-    var isSpreadGapRemoved: Bool = true
     var isLandscape: Bool = false {
         didSet { 
             Task { @MainActor in
@@ -488,8 +558,13 @@ final class ReaderViewModel {
     }
     
     var showNextVolumeSuggestion: Bool = false
+    var isPreparingNextVolume: Bool = false
     private(set) var nextComic: LocalComic?
+    private(set) var nextDriveItem: DriveItem?
+    private(set) var widePageIndices: Set<Int> = []
+    
     private var checkNextVolumeTask: Task<Void, Never>?
+    private var scanWidePagesTask: Task<Void, Never>?
     private var suggestionTask: Task<Void, Never>?
     
     var isSpreadMode: Bool {
@@ -503,47 +578,80 @@ final class ReaderViewModel {
         self.source = source
         self.currentPage = source.lastReadPage
         
+        // 初期設定がなければデフォルト値をセット
+        if UserDefaults.standard.object(forKey: "isSpreadEnabled") == nil {
+            UserDefaults.standard.set(true, forKey: "isSpreadEnabled")
+        }
+        if UserDefaults.standard.object(forKey: "isSpreadGapRemoved") == nil {
+            UserDefaults.standard.set(true, forKey: "isSpreadGapRemoved")
+        }
+        
+        // ワイドページの事前スキャン
+        scanWidePagesTask = Task {
+            await scanWidePages()
+        }
+        
         // 次の巻があるか事前にチェック
         checkNextVolumeTask = Task {
             await checkForNextVolume()
-            // 初期表示で最終ページの場合に備える
             checkIfLastPageReached()
         }
     }
     
     deinit {
         checkNextVolumeTask?.cancel()
+        scanWidePagesTask?.cancel()
         suggestionTask?.cancel()
     }
     
-    private func checkForNextVolume() async {
-        guard let currentLocal = source as? LocalComicSource else { return }
-        let currentTitle = currentLocal.title
-        
-        if Task.isCancelled { return }
-        
-        // 全てのコミックを取得
-        guard let allComics = try? LocalStorageService.shared.loadComics() else { return }
-        
-        if Task.isCancelled { return }
-        
-        // 同じシリーズと思われるものを抽出してソート
-        // 巻数サフィックス（例: " 第01巻", " Vol.1", " (1)", " 01"）を削除してベースタイトルを特定
-        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
-        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
-        
-        let seriesVolumes = allComics
-            .filter { $0.title.hasPrefix(prefix) }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        
-        if Task.isCancelled { return }
-        
-        if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == currentLocal.id }),
-           currentIndex + 1 < seriesVolumes.count {
-            await MainActor.run {
-                self.nextComic = seriesVolumes[currentIndex + 1]
+    private func scanWidePages() async {
+        var widePages = Set<Int>()
+        // 最初の20ページ程度を優先的にスキャン（パフォーマンスのため）
+        // 全ページスキャンすると時間がかかるため、必要に応じてバックグラウンドで継続
+        for i in 0..<min(source.pageCount, 100) {
+            if Task.isCancelled { return }
+            if await source.isWidePage(at: i) {
+                widePages.insert(i)
             }
         }
+        let finalWidePages = widePages
+        await MainActor.run {
+            self.widePageIndices = finalWidePages
+            // インデックスが更新されたので再計算が必要な可能性があるが、
+            // pageIndices が計算プロパティなので自動的に反映される
+        }
+    }
+    
+    private func checkForNextVolume() async {
+        let currentTitle = source.title
+        
+        if Task.isCancelled { return }
+        
+        // 1. まずローカルにあるかチェック
+        if let allComics = try? LocalStorageService.shared.loadComics() {
+            let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
+            let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+            
+            let seriesVolumes = allComics
+                .filter { $0.title.hasPrefix(prefix) }
+                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            
+            if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == source.id }),
+               currentIndex + 1 < seriesVolumes.count {
+                await MainActor.run {
+                    self.nextComic = seriesVolumes[currentIndex + 1]
+                }
+                return
+            }
+        }
+        
+        if Task.isCancelled { return }
+        
+        // 2. ローカルになければリモート（Drive）を探索
+        // 呼び出し元の情報を頼りに、現在のフォルダ内の次巻を探す
+        // (RemoteComicSource の場合は DriveService がある)
+        // ここでは実装を簡略化するため、RemoteComicSource の場合のみ対応するか、
+        // あるいはグローバルな DriveService へのアクセスを想定する
     }
     
     @MainActor
@@ -553,13 +661,14 @@ final class ReaderViewModel {
         // 次の巻がない、または最終ページでない場合は表示しない
         guard let lastIndex = pageIndices.last,
               currentPage == lastIndex,
-              nextComic != nil else {
+              (nextComic != nil || nextDriveItem != nil) else {
             showNextVolumeSuggestion = false
             return
         }
         
-        // すでに表示されている場合は何もしない
         if showNextVolumeSuggestion { return }
+        
+        isPreparingNextVolume = true
         
         // 1秒後にサジェストを表示
         suggestionTask = Task {
@@ -567,6 +676,7 @@ final class ReaderViewModel {
             if !Task.isCancelled {
                 await MainActor.run {
                     withAnimation(.easeInOut) {
+                        isPreparingNextVolume = false
                         showNextVolumeSuggestion = true
                     }
                 }
@@ -587,15 +697,27 @@ final class ReaderViewModel {
             var indices: [Int] = []
             var current = 0
             
+            // 最初のページ（表紙）の扱い
             if !isSpreadShifted {
-                // 1ページ目（表紙）は単独
                 indices.append(0)
                 current = 1
             }
             
             while current < pageCount {
                 indices.append(current)
-                current += 2
+                
+                // 現在のページがワイドページなら、次のページとペアにせず単独表示
+                if widePageIndices.contains(current) {
+                    current += 1
+                } else {
+                    // 次のページがワイドページなら、現在のページは単独表示
+                    if current + 1 < pageCount && widePageIndices.contains(current + 1) {
+                        current += 1
+                    } else {
+                        // どちらもワイドでなければペアにする
+                        current += 2
+                    }
+                }
             }
             return indices
         } else {
@@ -607,21 +729,14 @@ final class ReaderViewModel {
     func normalizePageIndex(_ page: Int) -> Int {
         guard isSpreadMode else { return max(0, min(pageCount - 1, page)) }
         
-        let normalized: Int
-        if !isSpreadShifted {
-            if page <= 0 {
-                normalized = 0
-            } else {
-                // 1, 2 -> 1 / 3, 4 -> 3 ... (奇数に丸める)
-                normalized = ((page - 1) / 2) * 2 + 1
-            }
-        } else {
-            // 0, 1 -> 0 / 2, 3 -> 2 ... (偶数に丸める)
-            normalized = (page / 2) * 2
+        let sortedIndices = pageIndices
+        if let exact = sortedIndices.firstIndex(of: page) {
+            return sortedIndices[exact]
         }
         
-        // 有効な範囲内にクランプ（pageCount - 1 を超えないようにする）
-        return max(0, min(normalized, pageCount - 1))
+        // 指定ページ以下の最大のインデックスを探す
+        let closest = sortedIndices.last(where: { $0 <= page }) ?? sortedIndices.first ?? 0
+        return closest
     }
     
     func goToNextPage() {
@@ -630,26 +745,19 @@ final class ReaderViewModel {
             let newIndex = min(pageIndices.count - 1, currentIndex + 1)
             let nextPageIndex = pageIndices[newIndex]
             
-            // すでに最後のインデックスにいて、さらに次へ行こうとした場合
-            if currentPage == nextPageIndex && nextComic != nil {
-                withAnimation {
-                    showNextVolumeSuggestion = true
-                }
+            if currentPage == nextPageIndex && (nextComic != nil || nextDriveItem != nil) {
+                withAnimation { showNextVolumeSuggestion = true }
             } else {
                 currentPage = nextPageIndex
             }
-        } else if nextComic != nil {
-            withAnimation {
-                showNextVolumeSuggestion = true
-            }
+        } else if nextComic != nil || nextDriveItem != nil {
+            withAnimation { showNextVolumeSuggestion = true }
         }
     }
     
     func goToPreviousPage() {
         if showNextVolumeSuggestion {
-            withAnimation {
-                showNextVolumeSuggestion = false
-            }
+            withAnimation { showNextVolumeSuggestion = false }
             return
         }
         
@@ -660,10 +768,25 @@ final class ReaderViewModel {
         }
     }
     
+    /// 次の巻へ進む際の後処理
+    func finalizeCurrentVolume() {
+        if autoDeleteAfterRead {
+            if let localSource = source as? LocalComicSource {
+                // TODO: ここで LocalComic オブジェクトを取得して削除
+                // 現在の ID を使って LocalStorageService から削除する
+                // try? LocalStorageService.shared.deleteComicById(localSource.id)
+            }
+        }
+    }
+    
     /// 見開きページのインデックスを取得（左、右）
     func getSpreadIndices(for baseIndex: Int) -> (Int?, Int?) {
+        // ワイドページなら単独表示
+        if widePageIndices.contains(baseIndex) {
+            return (nil, baseIndex) // または中央に配置するため (nil, baseIndex) を返し View側で判定
+        }
+        
         if !isSpreadShifted && baseIndex == 0 {
-            // シフトなしの場合、0ページ目は単独
             var left: Int?
             var right: Int?
             if isRightToLeft {
@@ -673,31 +796,33 @@ final class ReaderViewModel {
                 left = 0
                 right = nil
             }
-            if isSpreadSwapped {
-                swap(&left, &right)
-            }
+            if isSpreadSwapped { swap(&left, &right) }
             return (left, right)
         }
         
         let targetIndex = baseIndex
-        let nextIndex = targetIndex + 1 < pageCount ? targetIndex + 1 : nil
+        
+        // 次のページがワイドページなら、現在のターゲットは単独表示
+        let nextIndex: Int?
+        if let candidate = targetIndex + 1 < pageCount ? targetIndex + 1 : nil,
+           !widePageIndices.contains(candidate) {
+            nextIndex = candidate
+        } else {
+            nextIndex = nil
+        }
         
         var left: Int?
         var right: Int?
         
         if isRightToLeft {
-            // 日本の漫画（右開き）：若い数字が右、次の数字が左
             left = nextIndex
             right = targetIndex
         } else {
-            // アメコミ等（左開き）：若い数字が左、次の数字が右
             left = targetIndex
             right = nextIndex
         }
         
-        if isSpreadSwapped {
-            swap(&left, &right)
-        }
+        if isSpreadSwapped { swap(&left, &right) }
         
         return (left, right)
     }
