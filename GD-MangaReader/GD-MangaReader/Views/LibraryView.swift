@@ -668,6 +668,17 @@ struct AlertsAndSheetsModifier: ViewModifier {
     
     func body(content: Content) -> some View {
         content
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
+                if let nextComic = notification.object as? LocalComic {
+                    // 現在のセッションを一度閉じてから新しいセッションを開く
+                    readingSession = nil
+                    
+                    // わずかな遅延を入れて再表示（SwiftUIのシート遷移の制約のため）
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
+                    }
+                }
+            }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
                 Button("キャンセル", role: .cancel) {}
                 Button("サインアウト", role: .destructive) {
