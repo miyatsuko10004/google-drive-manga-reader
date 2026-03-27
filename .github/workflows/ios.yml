@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: macos-14 # Revert to macOS 14 which retains pre-installed iOS simulators
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -46,4 +46,4 @@ jobs:
       - name: Build
         run: |
           cd GD-MangaReader
-          xcodebuild build -scheme GD-MangaReader -project GD-MangaReader.xcodeproj -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' | xcpretty && exit ${PIPESTATUS[0]}
+          xcodebuild build -scheme GD-MangaReader -project GD-MangaReader.xcodeproj -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' | xcpretty && exit ${PIPESTATUS[0]}

@@ -51,6 +51,9 @@ struct ReaderView: View {
             .onAppear {
                 viewModel.isLandscape = geometry.size.width > geometry.size.height
             }
+            .onDisappear {
+                viewModel.cleanup()
+            }
             .onChange(of: geometry.size) { _, newSize in
                 viewModel.isLandscape = newSize.width > newSize.height
             }
@@ -516,6 +519,7 @@ enum ReadingMode: String, CaseIterable {
 
 // MARK: - Reader ViewModel
 
+@MainActor
 @Observable
 final class ReaderViewModel {
     // MARK: - Settings (Persistent)
@@ -588,7 +592,6 @@ final class ReaderViewModel {
     
     private let source: any ComicSource
     
-    @MainActor
     init(source: any ComicSource) {
         self.source = source
         self.currentPage = source.lastReadPage
@@ -618,6 +621,10 @@ final class ReaderViewModel {
     }
     
     deinit {
+        // Task cancellation moved to cleanup() called from onDisappear
+    }
+    
+    func cleanup() {
         checkNextVolumeTask?.cancel()
         scanWidePagesTask?.cancel()
         suggestionTask?.cancel()
@@ -701,7 +708,6 @@ final class ReaderViewModel {
         }
     }
     
-    @MainActor
     func checkIfLastPageReached() {
         suggestionTask?.cancel()
         
@@ -822,7 +828,7 @@ final class ReaderViewModel {
                 // LocalStorageServiceから削除
                 if let comics = try? LocalStorageService.shared.loadComics(),
                    let target = comics.first(where: { $0.id == localSource.id }) {
-                    try? await LocalStorageService.shared.deleteComic(target)
+                    try? LocalStorageService.shared.deleteComic(target)
                 }
             }
         }
@@ -989,7 +995,7 @@ struct AsyncImageView: View {
             }
         }
         .task {
-            // すでに読み込まれていればスキップ
+            // すでに読み込まれた状態で再利用される場合があるためチェック
             if image == nil {
                 await loadImage()
             }
@@ -1000,8 +1006,6 @@ struct AsyncImageView: View {
         isLoading = true
         defer { isLoading = false }
         
-        // ソースから画像を取得（ダウンスプリング等はSource側でやる想定だが、念のため）
-        // LocalComicSource等はすでにダウンサンプリング済みを返す
         if let loadedImage = try? await source.image(at: index) {
             await MainActor.run {
                 self.image = loadedImage

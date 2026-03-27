@@ -104,7 +104,7 @@ struct LocalComicSource: ComicSource {
         var updatedComic = comic
         updatedComic.lastReadPage = page
         updatedComic.lastReadAt = Date()
-        try? await LocalStorageService.shared.updateComic(updatedComic)
+        try? LocalStorageService.shared.updateComic(updatedComic)
     }
 }
 
@@ -184,9 +184,7 @@ final class RemoteComicSource: ComicSource {
         
         do {
             let file = files[index]
-            guard let data = try? await driveService.downloadFileData(fileId: file.id) else {
-                return false
-            }
+            let data = try await driveService.downloadFileData(fileId: file.id)
             
             let isWide = await Task.detached(priority: .userInitiated) {
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),
