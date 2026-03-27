@@ -32,7 +32,7 @@ protocol ComicSource {
 extension UIImage {
     /// 指定されたサイズに画像をダウンサンプリングする
     func downsampled(to targetSize: CGSize) -> UIImage {
-        let scale = max(targetSize.width / self.size.width, targetSize.height / self.size.height)
+        let scale = min(targetSize.width / self.size.width, targetSize.height / self.size.height)
         if scale >= 1.0 { return self }
         
         let newSize = CGSize(
@@ -119,6 +119,8 @@ final class RemoteComicSource: ComicSource {
     private let driveService: DriveService
     // 画像キャッシュ (Index -> UIImage)
     private var imageCache: [Int: UIImage] = [:]
+    // ワイドページ情報のキャッシュ
+    private var widePageCache: [Int: Bool] = [:]
     private let maxDisplaySize = CGSize(width: 2732, height: 2048)
     
     init(folderId: String, title: String, files: [DriveItem], driveService: DriveService) {
@@ -169,7 +171,32 @@ final class RemoteComicSource: ComicSource {
     }
     
     func isWidePage(at index: Int) async -> Bool {
-        // リモートの場合は簡易化のため常に false
-        return false
+        guard index >= 0 && index < files.count else { return false }
+        
+        if let cached = widePageCache[index] {
+            return cached
+        }
+        
+        do {
+            let file = files[index]
+            guard let data = try? await driveService.downloadFileData(fileId: file.id) else {
+                return false
+            }
+            
+            let isWide = await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+                      let height = properties[kCGImagePropertyPixelHeight] as? CGFloat else {
+                    return false
+                }
+                return width > height * 1.2
+            }.value
+            
+            widePageCache[index] = isWide
+            return isWide
+        } catch {
+            return false
+        }
     }
 }

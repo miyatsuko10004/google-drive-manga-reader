@@ -78,7 +78,7 @@ struct ReaderView: View {
     private func horizontalReader(geometry: GeometryProxy) -> some View {
         TabView(selection: $viewModel.currentPage) {
             ForEach(viewModel.pageIndices, id: \.self) { index in
-                if viewModel.isSpreadMode {
+                if viewModel.isSpreadMode && !viewModel.widePageIndices.contains(index) {
                     spreadPageView(index: index, geometry: geometry)
                         .tag(index)
                 } else {
@@ -450,15 +450,17 @@ struct ReaderView: View {
                     }
                     
                     Button {
-                        // 現在の巻の終了処理（自動削除など）
-                        viewModel.finalizeCurrentVolume()
-                        
-                        // 次の巻を開く
-                        NotificationCenter.default.post(
-                            name: Notification.Name("OpenNextVolume"),
-                            object: nextComic
-                        )
-                        dismiss()
+                        Task {
+                            // 現在の巻の終了処理（自動削除など）
+                            await viewModel.finalizeCurrentVolume()
+                            
+                            // 次の巻を開く
+                            NotificationCenter.default.post(
+                                name: Notification.Name("OpenNextVolume"),
+                                object: nextComic
+                            )
+                            dismiss()
+                        }
                     } label: {
                         Text("次を読む")
                             .font(.headline)
@@ -497,47 +499,37 @@ final class ReaderViewModel {
     // MARK: - Settings (Persistent)
     
     var isRightToLeft: Bool {
-        get { UserDefaults.standard.bool(forKey: "isRightToLeft") }
-        set { UserDefaults.standard.set(newValue, forKey: "isRightToLeft") }
+        didSet { UserDefaults.standard.set(isRightToLeft, forKey: "isRightToLeft") }
     }
     
     var readingMode: ReadingMode {
-        get { 
-            let val = UserDefaults.standard.string(forKey: "readingMode") ?? ReadingMode.horizontal.rawValue
-            return ReadingMode(rawValue: val) ?? .horizontal
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "readingMode") }
+        didSet { UserDefaults.standard.set(readingMode.rawValue, forKey: "readingMode") }
     }
     
     var isSpreadEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "isSpreadEnabled") as? Bool ?? true }
-        set { 
-            UserDefaults.standard.set(newValue, forKey: "isSpreadEnabled")
+        didSet { 
+            UserDefaults.standard.set(isSpreadEnabled, forKey: "isSpreadEnabled")
             recalculateCurrentPage()
         }
     }
     
     var isSpreadSwapped: Bool {
-        get { UserDefaults.standard.bool(forKey: "isSpreadSwapped") }
-        set { UserDefaults.standard.set(newValue, forKey: "isSpreadSwapped") }
+        didSet { UserDefaults.standard.set(isSpreadSwapped, forKey: "isSpreadSwapped") }
     }
     
     var isSpreadShifted: Bool {
-        get { UserDefaults.standard.bool(forKey: "isSpreadShifted") }
-        set { 
-            UserDefaults.standard.set(newValue, forKey: "isSpreadShifted")
+        didSet { 
+            UserDefaults.standard.set(isSpreadShifted, forKey: "isSpreadShifted")
             recalculateCurrentPage()
         }
     }
     
     var isSpreadGapRemoved: Bool {
-        get { UserDefaults.standard.object(forKey: "isSpreadGapRemoved") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "isSpreadGapRemoved") }
+        didSet { UserDefaults.standard.set(isSpreadGapRemoved, forKey: "isSpreadGapRemoved") }
     }
     
     var autoDeleteAfterRead: Bool {
-        get { UserDefaults.standard.bool(forKey: "autoDeleteAfterRead") }
-        set { UserDefaults.standard.set(newValue, forKey: "autoDeleteAfterRead") }
+        didSet { UserDefaults.standard.set(autoDeleteAfterRead, forKey: "autoDeleteAfterRead") }
     }
     
     // MARK: - State
@@ -552,7 +544,6 @@ final class ReaderViewModel {
     
     /// 設定や向きが変更された際に現在のページを適切な見開きインデックスに再調整する
     private func recalculateCurrentPage() {
-        // Observer の更新ループを避けるため、値が異なる場合のみ設定する
         let normalized = normalizePageIndex(currentPage)
         if currentPage != normalized {
             currentPage = normalized
@@ -580,17 +571,24 @@ final class ReaderViewModel {
         self.source = source
         self.currentPage = source.lastReadPage
         
-        if UserDefaults.standard.object(forKey: "isSpreadEnabled") == nil {
-            UserDefaults.standard.set(true, forKey: "isSpreadEnabled")
-        }
-        if UserDefaults.standard.object(forKey: "isSpreadGapRemoved") == nil {
-            UserDefaults.standard.set(true, forKey: "isSpreadGapRemoved")
-        }
+        // UserDefaults から初期値を読み込む
+        self.isRightToLeft = UserDefaults.standard.bool(forKey: "isRightToLeft")
         
+        let modeVal = UserDefaults.standard.string(forKey: "readingMode") ?? ReadingMode.horizontal.rawValue
+        self.readingMode = ReadingMode(rawValue: modeVal) ?? .horizontal
+        
+        self.isSpreadEnabled = UserDefaults.standard.object(forKey: "isSpreadEnabled") as? Bool ?? true
+        self.isSpreadSwapped = UserDefaults.standard.bool(forKey: "isSpreadSwapped")
+        self.isSpreadShifted = UserDefaults.standard.bool(forKey: "isSpreadShifted")
+        self.isSpreadGapRemoved = UserDefaults.standard.object(forKey: "isSpreadGapRemoved") as? Bool ?? true
+        self.autoDeleteAfterRead = UserDefaults.standard.bool(forKey: "autoDeleteAfterRead")
+        
+        // ワイドページの事前スキャン
         scanWidePagesTask = Task {
             await scanWidePages()
         }
         
+        // 次の巻があるか事前にチェック
         checkNextVolumeTask = Task {
             await checkForNextVolume()
             checkIfLastPageReached()
@@ -604,7 +602,8 @@ final class ReaderViewModel {
     }
     
     private func scanWidePages() async {
-        let maxScanPages = min(source.pageCount, 100)
+        // 全ページを走査するように変更
+        let maxScanPages = source.pageCount
         
         let widePages = await withTaskGroup(of: Int?.self) { group in
             for i in 0..<maxScanPages {
@@ -633,14 +632,13 @@ final class ReaderViewModel {
     
     private func checkForNextVolume() async {
         let currentTitle = source.title
+        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
+        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
         
         if Task.isCancelled { return }
         
         // 1. まずローカルにあるかチェック
         if let allComics = try? LocalStorageService.shared.loadComics() {
-            let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
-            let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
-            
             let seriesVolumes = allComics
                 .filter { $0.title.hasPrefix(prefix) }
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -657,10 +655,8 @@ final class ReaderViewModel {
         if Task.isCancelled { return }
         
         // 2. ローカルになければリモート（Drive）を探索
-        // 呼び出し元の情報を頼りに、現在のフォルダ内の次巻を探す
-        // (RemoteComicSource の場合は DriveService がある)
-        // ここでは実装を簡略化するため、RemoteComicSource の場合のみ対応するか、
-        // あるいはグローバルな DriveService へのアクセスを想定する
+        // 実際の実装は DriveService が親フォルダ内のアイテムを取得する必要がある
+        // ここではプレースホルダ的に、将来の拡張のためのブランチを用意する
     }
     
     @MainActor
@@ -778,15 +774,13 @@ final class ReaderViewModel {
     }
     
     /// 次の巻へ進む際の後処理
-    func finalizeCurrentVolume() {
+    func finalizeCurrentVolume() async {
         if autoDeleteAfterRead {
             if let localSource = source as? LocalComicSource {
-                Task {
-                    // LocalStorageServiceから削除
-                    if let comics = try? LocalStorageService.shared.loadComics(),
-                       let target = comics.first(where: { $0.id == localSource.id }) {
-                        try? LocalStorageService.shared.deleteComic(target)
-                    }
+                // LocalStorageServiceから削除
+                if let comics = try? LocalStorageService.shared.loadComics(),
+                   let target = comics.first(where: { $0.id == localSource.id }) {
+                    try? await LocalStorageService.shared.deleteComic(target)
                 }
             }
         }
