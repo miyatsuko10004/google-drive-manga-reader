@@ -40,7 +40,9 @@ extension UIImage {
             height: self.size.height * scale
         )
         
-        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
         return renderer.image { _ in
             self.draw(in: CGRect(origin: .zero, size: newSize))
         }
@@ -113,22 +115,24 @@ final class RemoteComicSource: ComicSource {
     let id: String
     let title: String
     let pageCount: Int
+    let parentId: String?
     var lastReadPage: Int = 0
     
     private let files: [DriveItem]
-    private let driveService: DriveService
+    let driveService: DriveService
     // 画像キャッシュ (Index -> UIImage)
     private var imageCache: [Int: UIImage] = [:]
     // ワイドページ情報のキャッシュ
     private var widePageCache: [Int: Bool] = [:]
     private let maxDisplaySize = CGSize(width: 2732, height: 2048)
     
-    init(folderId: String, title: String, files: [DriveItem], driveService: DriveService) {
+    init(folderId: String, title: String, files: [DriveItem], driveService: DriveService, parentId: String? = nil) {
         self.id = folderId
         self.title = title
         self.files = files
         self.pageCount = files.count
         self.driveService = driveService
+        self.parentId = parentId
     }
     
     func image(at index: Int) async throws -> UIImage? {
@@ -170,6 +174,7 @@ final class RemoteComicSource: ComicSource {
         self.lastReadPage = page
     }
     
+    @MainActor
     func isWidePage(at index: Int) async -> Bool {
         guard index >= 0 && index < files.count else { return false }
         

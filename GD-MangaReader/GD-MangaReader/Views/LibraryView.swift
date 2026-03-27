@@ -402,7 +402,8 @@ struct LibraryView: View {
             folderId: libraryViewModel.currentFolderId ?? "root",
             title: libraryViewModel.currentFolderName,
             files: images,
-            driveService: libraryViewModel.driveService
+            driveService: libraryViewModel.driveService,
+            parentId: libraryViewModel.folderPath.dropLast().last?.id
         )
         
         // 初期ページを設定
@@ -676,6 +677,16 @@ struct AlertsAndSheetsModifier: ViewModifier {
                     // わずかな遅延を入れて再表示（SwiftUIのシート遷移の制約のため）
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextDriveItem"))) { notification in
+                if notification.object is DriveItem {
+                    // 現在のセッションを閉じる
+                    readingSession = nil
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        // TODO: より堅牢な自動遷移ロジック（フォルダを跨ぐ場合）
                     }
                 }
             }

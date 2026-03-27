@@ -37,8 +37,12 @@ struct ReaderView: View {
                 }
                 
                 // 次の巻サジェスト
-                if viewModel.showNextVolumeSuggestion, let nextComic = viewModel.nextComic {
-                    nextVolumeOverlay(nextComic: nextComic)
+                if viewModel.showNextVolumeSuggestion {
+                    if let nextComic = viewModel.nextComic {
+                        nextVolumeOverlay(nextComic: nextComic)
+                    } else if let nextDriveItem = viewModel.nextDriveItem {
+                        nextVolumeOverlayForDrive(item: nextDriveItem)
+                    }
                 }
             }
             .onTapGesture(coordinateSpace: .local) { location in
@@ -417,6 +421,32 @@ struct ReaderView: View {
     // MARK: - Next Volume Suggestion View
     
     private func nextVolumeOverlay(nextComic: LocalComic) -> some View {
+        suggestionContent(title: nextComic.title) {
+            // 現在の巻の終了処理（自動削除など）
+            await viewModel.finalizeCurrentVolume()
+            
+            // 次の巻を開く
+            NotificationCenter.default.post(
+                name: Notification.Name("OpenNextVolume"),
+                object: nextComic
+            )
+            dismiss()
+        }
+    }
+    
+    private func nextVolumeOverlayForDrive(item: DriveItem) -> some View {
+        suggestionContent(title: item.name) {
+            // リモートの場合は自動削除なし
+            // 次の巻を開く
+            NotificationCenter.default.post(
+                name: Notification.Name("OpenNextDriveItem"),
+                object: item
+            )
+            dismiss()
+        }
+    }
+    
+    private func suggestionContent(title: String, action: @escaping () async -> Void) -> some View {
         ZStack {
             Color.black.opacity(0.8).ignoresSafeArea()
             
@@ -430,7 +460,7 @@ struct ReaderView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                     
-                    Text(nextComic.title)
+                    Text(title)
                         .font(.subheadline)
                         .foregroundColor(.orange)
                         .multilineTextAlignment(.center)
@@ -451,15 +481,7 @@ struct ReaderView: View {
                     
                     Button {
                         Task {
-                            // 現在の巻の終了処理（自動削除など）
-                            await viewModel.finalizeCurrentVolume()
-                            
-                            // 次の巻を開く
-                            NotificationCenter.default.post(
-                                name: Notification.Name("OpenNextVolume"),
-                                object: nextComic
-                            )
-                            dismiss()
+                            await action()
                         }
                     } label: {
                         Text("次を読む")
@@ -655,8 +677,28 @@ final class ReaderViewModel {
         if Task.isCancelled { return }
         
         // 2. ローカルになければリモート（Drive）を探索
-        // 実際の実装は DriveService が親フォルダ内のアイテムを取得する必要がある
-        // ここではプレースホルダ的に、将来の拡張のためのブランチを用意する
+        if let remoteSource = source as? RemoteComicSource, let parentId = remoteSource.parentId {
+            do {
+                // 親フォルダ内のアイテム一覧を取得
+                let (items, _) = try await remoteSource.driveService.listFiles(in: parentId)
+                
+                // シリーズ判定ロジックを適用
+                let seriesVolumes = items
+                    .filter { $0.name.hasPrefix(prefix) }
+                    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                
+                // 現在のフォルダの次を探す
+                if let currentIndex = seriesVolumes.firstIndex(where: { $0.id == remoteSource.id }),
+                   currentIndex + 1 < seriesVolumes.count {
+                    let nextItem = seriesVolumes[currentIndex + 1]
+                    await MainActor.run {
+                        self.nextDriveItem = nextItem
+                    }
+                }
+            } catch {
+                print("⚠️ [ReaderViewModel] Failed to fetch remote next volume: \(error.localizedDescription)")
+            }
+        }
     }
     
     @MainActor
