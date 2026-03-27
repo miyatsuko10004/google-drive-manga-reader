@@ -27,11 +27,36 @@ protocol ComicSource {
     func isWidePage(at index: Int) async -> Bool
 }
 
+// MARK: - Image Utilities
+
+extension UIImage {
+    /// 指定されたサイズに画像をダウンサンプリングする
+    func downsampled(to targetSize: CGSize) -> UIImage {
+        let scale = max(targetSize.width / self.size.width, targetSize.height / self.size.height)
+        if scale >= 1.0 { return self }
+        
+        let newSize = CGSize(
+            width: self.size.width * scale,
+            height: self.size.height * scale
+        )
+        
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            self.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+}
+
 // MARK: - Local Comic Source
 
 /// ローカルにダウンロード済みの漫画ソース
 struct LocalComicSource: ComicSource {
     private let comic: LocalComic
+    
+    // 表示用ターゲットサイズ（UI側から注入されるべきだが、簡易的にハードコードを避けるためのフォールバック）
+    // 理想は ReaderView から渡すことですが、非同期画像取得時のオーバーヘッドを減らすため
+    // 現状は iOS の標準的な最大画面サイズ（iPad等）を想定した固定値を使用します。
+    private let maxDisplaySize = CGSize(width: 2732, height: 2048) 
     
     init(comic: LocalComic) {
         self.comic = comic
@@ -45,14 +70,14 @@ struct LocalComicSource: ComicSource {
     func image(at index: Int) async throws -> UIImage? {
         guard index >= 0 && index < comic.imagePaths.count else { return nil }
         let url = comic.imagePaths[index]
+        let targetSize = self.maxDisplaySize
         
         return await Task.detached(priority: .userInitiated) {
             guard let data = try? Data(contentsOf: url),
                   let uiImage = UIImage(data: data) else {
                 return nil
             }
-            // 画面サイズに合わせてダウンサンプリング
-            return downsample(image: uiImage, to: UIScreen.main.bounds.size)
+            return uiImage.downsampled(to: targetSize)
         }.value
     }
     
@@ -79,22 +104,6 @@ struct LocalComicSource: ComicSource {
         updatedComic.lastReadAt = Date()
         try? await LocalStorageService.shared.updateComic(updatedComic)
     }
-    
-    /// 画像をダウンサンプリング（メモリ効率化）
-    private func downsample(image: UIImage, to targetSize: CGSize) -> UIImage {
-        let scale = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
-        if scale >= 1.0 { return image }
-        
-        let newSize = CGSize(
-            width: image.size.width * scale,
-            height: image.size.height * scale
-        )
-        
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
-    }
 }
 
 // MARK: - Remote Comic Source
@@ -110,6 +119,7 @@ final class RemoteComicSource: ComicSource {
     private let driveService: DriveService
     // 画像キャッシュ (Index -> UIImage)
     private var imageCache: [Int: UIImage] = [:]
+    private let maxDisplaySize = CGSize(width: 2732, height: 2048)
     
     init(folderId: String, title: String, files: [DriveItem], driveService: DriveService) {
         self.id = folderId
@@ -139,10 +149,11 @@ final class RemoteComicSource: ComicSource {
         }
         
         guard let uiImage = UIImage(data: data) else { return nil }
+        let targetSize = self.maxDisplaySize
         
         // ダウンサンプリング
         let processedImage = await Task.detached(priority: .userInitiated) {
-            return Self.downsample(image: uiImage, to: UIScreen.main.bounds.size)
+            return uiImage.downsampled(to: targetSize)
         }.value
         
         if imageCache.count > 20 {
@@ -160,14 +171,5 @@ final class RemoteComicSource: ComicSource {
     func isWidePage(at index: Int) async -> Bool {
         // リモートの場合は簡易化のため常に false
         return false
-    }
-    
-    private static func downsample(image: UIImage, to targetSize: CGSize) -> UIImage {
-        let sc = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
-        if sc >= 1.0 { return image }
-        let newSize = CGSize(width: image.size.width * sc, height: image.size.height * sc)
-        return UIGraphicsImageRenderer(size: newSize).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
     }
 }

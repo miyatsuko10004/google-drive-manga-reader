@@ -52,6 +52,7 @@ struct ReaderView: View {
             }
             .onChange(of: viewModel.currentPage) { _, _ in
                 saveProgress()
+                viewModel.checkIfLastPageReached()
             }
         }
         .ignoresSafeArea()
@@ -512,7 +513,7 @@ final class ReaderViewModel {
         get { UserDefaults.standard.object(forKey: "isSpreadEnabled") as? Bool ?? true }
         set { 
             UserDefaults.standard.set(newValue, forKey: "isSpreadEnabled")
-            Task { @MainActor in currentPage = normalizePageIndex(currentPage) }
+            recalculateCurrentPage()
         }
     }
     
@@ -525,7 +526,7 @@ final class ReaderViewModel {
         get { UserDefaults.standard.bool(forKey: "isSpreadShifted") }
         set { 
             UserDefaults.standard.set(newValue, forKey: "isSpreadShifted")
-            Task { @MainActor in currentPage = normalizePageIndex(currentPage) }
+            recalculateCurrentPage()
         }
     }
     
@@ -541,19 +542,20 @@ final class ReaderViewModel {
     
     // MARK: - State
     
-    var currentPage: Int {
-        didSet {
-            Task { @MainActor in
-                checkIfLastPageReached()
-            }
-        }
-    }
+    var currentPage: Int
     var showUI: Bool = true
     var isLandscape: Bool = false {
         didSet { 
-            Task { @MainActor in
-                currentPage = normalizePageIndex(currentPage) 
-            }
+            recalculateCurrentPage()
+        }
+    }
+    
+    /// 設定や向きが変更された際に現在のページを適切な見開きインデックスに再調整する
+    private func recalculateCurrentPage() {
+        // Observer の更新ループを避けるため、値が異なる場合のみ設定する
+        let normalized = normalizePageIndex(currentPage)
+        if currentPage != normalized {
+            currentPage = normalized
         }
     }
     
@@ -578,7 +580,6 @@ final class ReaderViewModel {
         self.source = source
         self.currentPage = source.lastReadPage
         
-        // 初期設定がなければデフォルト値をセット
         if UserDefaults.standard.object(forKey: "isSpreadEnabled") == nil {
             UserDefaults.standard.set(true, forKey: "isSpreadEnabled")
         }
@@ -586,12 +587,10 @@ final class ReaderViewModel {
             UserDefaults.standard.set(true, forKey: "isSpreadGapRemoved")
         }
         
-        // ワイドページの事前スキャン
         scanWidePagesTask = Task {
             await scanWidePages()
         }
         
-        // 次の巻があるか事前にチェック
         checkNextVolumeTask = Task {
             await checkForNextVolume()
             checkIfLastPageReached()
@@ -605,20 +604,30 @@ final class ReaderViewModel {
     }
     
     private func scanWidePages() async {
-        var widePages = Set<Int>()
-        // 最初の20ページ程度を優先的にスキャン（パフォーマンスのため）
-        // 全ページスキャンすると時間がかかるため、必要に応じてバックグラウンドで継続
-        for i in 0..<min(source.pageCount, 100) {
-            if Task.isCancelled { return }
-            if await source.isWidePage(at: i) {
-                widePages.insert(i)
+        let maxScanPages = min(source.pageCount, 100)
+        
+        let widePages = await withTaskGroup(of: Int?.self) { group in
+            for i in 0..<maxScanPages {
+                group.addTask {
+                    if Task.isCancelled { return nil }
+                    let isWide = await self.source.isWidePage(at: i)
+                    return isWide ? i : nil
+                }
             }
+            
+            var results = Set<Int>()
+            for await result in group {
+                if let idx = result {
+                    results.insert(idx)
+                }
+            }
+            return results
         }
-        let finalWidePages = widePages
+        
+        if Task.isCancelled { return }
+        
         await MainActor.run {
-            self.widePageIndices = finalWidePages
-            // インデックスが更新されたので再計算が必要な可能性があるが、
-            // pageIndices が計算プロパティなので自動的に反映される
+            self.widePageIndices = widePages
         }
     }
     
@@ -655,7 +664,7 @@ final class ReaderViewModel {
     }
     
     @MainActor
-    private func checkIfLastPageReached() {
+    func checkIfLastPageReached() {
         suggestionTask?.cancel()
         
         // 次の巻がない、または最終ページでない場合は表示しない
@@ -772,9 +781,13 @@ final class ReaderViewModel {
     func finalizeCurrentVolume() {
         if autoDeleteAfterRead {
             if let localSource = source as? LocalComicSource {
-                // TODO: ここで LocalComic オブジェクトを取得して削除
-                // 現在の ID を使って LocalStorageService から削除する
-                // try? LocalStorageService.shared.deleteComicById(localSource.id)
+                Task {
+                    // LocalStorageServiceから削除
+                    if let comics = try? LocalStorageService.shared.loadComics(),
+                       let target = comics.first(where: { $0.id == localSource.id }) {
+                        try? LocalStorageService.shared.deleteComic(target)
+                    }
+                }
             }
         }
     }
