@@ -45,6 +45,7 @@ struct ReaderView: View {
                     }
                 }
             }
+            .id(source.id) // sourceが変わったらViewとStateを強制再生成
             .onTapGesture(coordinateSpace: .local) { location in
                 handleTap(at: location, in: geometry.size)
             }
@@ -85,16 +86,19 @@ struct ReaderView: View {
     private func horizontalReader(geometry: GeometryProxy) -> some View {
         TabView(selection: $viewModel.currentPage) {
             ForEach(viewModel.pageIndices, id: \.self) { index in
-                if viewModel.isSpreadMode && !viewModel.widePageIndices.contains(index) {
-                    spreadPageView(index: index, geometry: geometry)
-                        .tag(index)
-                } else {
-                    singlePageView(index: index, geometry: geometry)
-                        .tag(index)
+                Group {
+                    if viewModel.isSpreadMode && !viewModel.widePageIndices.contains(index) {
+                        spreadPageView(index: index, geometry: geometry)
+                    } else {
+                        singlePageView(index: index, geometry: geometry)
+                    }
                 }
+                .tag(index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        // 設定変更時にTabViewを再生成して確実に反映させる
+        .id("ReaderTabView_\(viewModel.isSpreadMode)_\(viewModel.isSpreadSwapped)_\(viewModel.isSpreadShifted)_\(viewModel.isRightToLeft)_\(viewModel.isSpreadGapRemoved)")
         .ignoresSafeArea()
         .environment(\.layoutDirection, viewModel.isRightToLeft ? .rightToLeft : .leftToRight)
     }
@@ -525,7 +529,10 @@ final class ReaderViewModel {
     // MARK: - Settings (Persistent)
     
     var isRightToLeft: Bool {
-        didSet { UserDefaults.standard.set(isRightToLeft, forKey: "isRightToLeft") }
+        didSet { 
+            UserDefaults.standard.set(isRightToLeft, forKey: "isRightToLeft")
+            recalculateCurrentPage()
+        }
     }
     
     var readingMode: ReadingMode {
