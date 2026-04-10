@@ -31,6 +31,12 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     /// 更新日時
     let modifiedTime: Date?
     
+    /// 画像の幅（オプション）
+    let width: Int?
+    
+    /// 画像の高さ（オプション）
+    let height: Int?
+    
     // MARK: - Computed Properties
     
     /// フォルダかどうか
@@ -101,7 +107,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: nil,
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockZipFile = DriveItem(
@@ -112,7 +120,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: "folder-1",
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockRarFile = DriveItem(
@@ -123,7 +133,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: "folder-1",
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockItems: [DriveItem] = [
