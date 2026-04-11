@@ -652,8 +652,8 @@ final class ReaderViewModel {
             
             // 最初のバッチ
             for _ in 0..<min(concurrencyLimit, maxScanPages) {
+                let idx = currentIndex
                 group.addTask {
-                    let idx = currentIndex
                     if Task.isCancelled { return nil }
                     let isWide = await self.source.isWidePage(at: idx)
                     return isWide ? idx : nil
