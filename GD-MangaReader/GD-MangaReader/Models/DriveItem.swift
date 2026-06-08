@@ -96,6 +96,25 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - LocalComic Extension
+
+extension DriveItem {
+    /// LocalComicからDriveItemオブジェクトを生成するマッピングイニシャライザ
+    /// - Parameter localComic: ダウンロード済みの漫画データ
+    init(from localComic: LocalComic) {
+        self.id = localComic.driveFileId
+        self.name = localComic.title
+        self.mimeType = "application/zip" // 一括アーカイブを模倣
+        self.size = localComic.originalFileSize
+        self.thumbnailURL = localComic.imagePaths.first // ローカルの絶対URLをサムネイルとして使用
+        self.parentId = nil
+        self.createdTime = localComic.downloadedAt
+        self.modifiedTime = localComic.lastReadAt
+        self.width = nil
+        self.height = nil
+    }
+}
+
 // MARK: - Mock Data for Preview
 
 extension DriveItem {
