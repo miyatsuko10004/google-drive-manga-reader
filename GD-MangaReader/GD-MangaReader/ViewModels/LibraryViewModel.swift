@@ -46,6 +46,9 @@ struct LRUCache<Key: Hashable, Value> {
 final class LibraryViewModel {
     // MARK: - Properties
     
+    /// オフラインモードが有効かどうか
+    var isOfflineMode: Bool = false
+    
     /// 現在表示中のアイテム一覧
     private(set) var items: [DriveItem] = []
     
@@ -254,6 +257,17 @@ final class LibraryViewModel {
         isLoading = true
         errorMessage = nil
         
+        if isOfflineMode {
+            let localComics = (try? LocalStorageService.shared.loadComics()) ?? []
+            self.items = localComics
+                .filter { $0.status == .completed }
+                .map { DriveItem(from: $0) }
+            updateFilteredItems()
+            self.nextPageToken = nil
+            self.isLoading = false
+            return
+        }
+        
         do {
             // 現在のフォルダIDが未設定の場合、ルートIDを取得して設定
             if currentFolderId == nil {
@@ -321,6 +335,7 @@ final class LibraryViewModel {
     
     /// 次のページを読み込み
     func loadMoreFiles() async {
+        guard !isOfflineMode else { return }
         guard hasMoreItems, !isLoading else { return }
         
         isLoading = true
@@ -342,6 +357,7 @@ final class LibraryViewModel {
     
     /// フォルダに移動
     func navigateToFolder(_ folder: DriveItem) async {
+        guard !isOfflineMode else { return }
         guard folder.isFolder else { return }
         
         folderPath.append(folder)
@@ -354,6 +370,7 @@ final class LibraryViewModel {
     
     /// 親フォルダに戻る
     func navigateBack() async {
+        guard !isOfflineMode else { return }
         guard !folderPath.isEmpty else { return }
         
         folderPath.removeLast()
@@ -372,6 +389,7 @@ final class LibraryViewModel {
     
     /// ルートに戻る
     func navigateToRoot() async {
+        guard !isOfflineMode else { return }
         folderPath = []
         // ルートIDを再取得（キャッシュされているはず）
         currentFolderId = try? await driveService.fetchRootFolderId()
