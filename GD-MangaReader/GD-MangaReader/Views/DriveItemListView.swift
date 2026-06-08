@@ -25,7 +25,7 @@ struct DriveItemListView: View {
                         onItemTap(item)
                     }
                     .onLongPressGesture {
-                        if item.isFolder {
+                        if !libraryViewModel.isOfflineMode && item.isFolder {
                             selectedFolderForBulk = item
                             showingBulkDownloadConfirmation = true
                         }
