@@ -56,20 +56,38 @@ struct LoginView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.5)
                     } else {
-                        GoogleSignInButton(
-                            viewModel: GoogleSignInButtonViewModel(
-                                scheme: .light,
-                                style: .wide,
-                                state: .normal
-                            )
-                        ) {
-                            Task {
-                                await authViewModel.signIn()
+                        VStack(spacing: 16) {
+                            GoogleSignInButton(
+                                viewModel: GoogleSignInButtonViewModel(
+                                    scheme: .light,
+                                    style: .wide,
+                                    state: .normal
+                                )
+                            ) {
+                                Task {
+                                    await authViewModel.signIn()
+                                }
                             }
+                            .frame(width: 280, height: 50)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                            
+                            Button(action: {
+                                authViewModel.setOfflineMode(true)
+                            }) {
+                                Text("オフラインで利用")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(width: 280, height: 50)
+                                    .background(Color.white.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                                    )
+                            }
+                            .shadow(color: .black.opacity(0.15), radius: 5, x: 0, y: 3)
                         }
-                        .frame(width: 280, height: 50)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
                     }
                     
                     // エラーメッセージ
