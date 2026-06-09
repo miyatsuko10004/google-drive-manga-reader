@@ -767,38 +767,42 @@ struct AlertsAndSheetsModifier: ViewModifier {
                     readingSession = nil
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        // 次の巻が画像（ストリーミング）の場合
-                        if nextItem.isFolder || nextItem.isImage {
-                            // 現在のフォルダ内の画像一覧を取得し直す必要があるが、
-                            // DriveItem自体がそのフォルダの情報をある程度持っているか、
-                            // あるいは再スキャンが必要。ここでは簡易的にDriveItemから
-                            // 推測または再構築するロジックを呼ぶ
-                            
-                            // 既存のLibraryViewModelのアイテムから次巻のフォルダ情報を探す
-                            // (ここでは startStreamingRead と同様のロジックが必要)
-                            
-                            // とりあえず既存の startStreamingRead を流用できるように
-                            // libraryViewModelのアイテムを更新するか、直接RemoteComicSourceを構成
-                            
-                            // 実際にはLibraryViewModelの状態に依存せず、
-                            // nextItemから新しいRemoteComicSourceを直接構築するのが安全
-                            let source = RemoteComicSource(
-                                folderId: nextItem.id,
-                                title: nextItem.name,
-                                files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
-                                driveService: libraryViewModel.driveService,
-                                parentId: libraryViewModel.currentFolderId
-                            )
-                            readingSession = LibraryView.ComicSession(source: source)
-                        } else if nextItem.isArchive {
-                            // アーカイブの場合はダウンロード済みかチェック
-                            if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                        if authViewModel.isOfflineMode {
+                            // オフラインモード時の制御
+                            if nextItem.isArchive,
+                               let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
                                existingComic.status == .completed {
                                 readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
                             } else {
-                                // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
-                                // リーダーからの自動遷移なので、一旦選択状態にする
-                                selectedItem = nextItem
+                                // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
+                                toast = ToastData(
+                                    title: "オフラインモード",
+                                    message: "この漫画はオフラインでは閲覧できません。",
+                                    type: .error
+                                )
+                            }
+                        } else {
+                            // オンライン時の制御
+                            // 次の巻が画像（ストリーミング）の場合
+                            if nextItem.isFolder || nextItem.isImage {
+                                let source = RemoteComicSource(
+                                    folderId: nextItem.id,
+                                    title: nextItem.name,
+                                    files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
+                                    driveService: libraryViewModel.driveService,
+                                    parentId: libraryViewModel.currentFolderId
+                                )
+                                readingSession = LibraryView.ComicSession(source: source)
+                            } else if nextItem.isArchive {
+                                // アーカイブの場合はダウンロード済みかチェック
+                                if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                                   existingComic.status == .completed {
+                                    readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
+                                } else {
+                                    // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
+                                    // リーダーからの自動遷移ので、一旦選択状態にする
+                                    selectedItem = nextItem
+                                }
                             }
                         }
                     }
@@ -887,4 +891,3 @@ struct AlertsAndSheetsModifier: ViewModifier {
             }
     }
 }
-
