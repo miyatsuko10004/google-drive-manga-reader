@@ -104,7 +104,7 @@ final class DriveService {
             .joined(separator: " or ")
         
         query.q = "'\(targetFolderId)' in parents and trashed=false and (\(mimeTypeConditions) or \(allExtensionQuery))"
-        query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime)"
+        query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime, imageMediaMetadata)"
         query.orderBy = "folder, name"
         query.pageSize = 50
         query.pageToken = pageToken
@@ -126,7 +126,9 @@ final class DriveService {
                 thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
                 parentId: file.parents?.first,
                 createdTime: file.createdTime?.date,
-                modifiedTime: file.modifiedTime?.date
+                modifiedTime: file.modifiedTime?.date,
+                width: file.imageMediaMetadata?.width?.intValue,
+                height: file.imageMediaMetadata?.height?.intValue
             )
         }
         
@@ -139,7 +141,7 @@ final class DriveService {
         
         query.q = "'\(folderId)' in parents and trashed=false and (\(allExtensionQuery))"
         // サムネイルに特化した必要最小限のフィールドだけを要求し軽量化
-        query.fields = "files(id, name, mimeType, thumbnailLink)"
+        query.fields = "files(id, name, mimeType, thumbnailLink, imageMediaMetadata)"
         query.orderBy = "name"
         query.pageSize = limit
         
@@ -158,7 +160,9 @@ final class DriveService {
                 thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
                 parentId: folderId,
                 createdTime: file.createdTime?.date,
-                modifiedTime: file.modifiedTime?.date
+                modifiedTime: file.modifiedTime?.date,
+                width: file.imageMediaMetadata?.width?.intValue,
+                height: file.imageMediaMetadata?.height?.intValue
             )
         }
         
@@ -202,7 +206,7 @@ final class DriveService {
             .joined(separator: " or ")
         
         query.q = "'\(folderId)' in parents and trashed=false and (\(imageConditions))"
-        query.fields = "files(id, name, mimeType, size, thumbnailLink, parents)"
+        query.fields = "files(id, name, mimeType, size, thumbnailLink, parents, imageMediaMetadata)"
         query.orderBy = "name"
         query.pageSize = 500
         
@@ -221,7 +225,9 @@ final class DriveService {
                 thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
                 parentId: file.parents?.first,
                 createdTime: nil,
-                modifiedTime: nil
+                modifiedTime: nil,
+                width: file.imageMediaMetadata?.width?.intValue,
+                height: file.imageMediaMetadata?.height?.intValue
             )
         }
     }

@@ -13,6 +13,13 @@ import GoogleAPIClientForREST_Drive
 final class AuthViewModel {
     // MARK: - Properties
     
+    /// オフラインモードの状態 (UserDefaultsに永続化)
+    var isOfflineMode: Bool = UserDefaults.standard.bool(forKey: "is_offline_mode") {
+        didSet {
+            UserDefaults.standard.set(isOfflineMode, forKey: "is_offline_mode")
+        }
+    }
+    
     /// サインイン状態
     private(set) var isSignedIn: Bool = false
     
@@ -95,6 +102,12 @@ final class AuthViewModel {
         userEmail = ""
         userProfileImageURL = nil
         currentUser = nil
+    }
+    
+    /// オフラインモードを手動で切り替える
+    /// - Parameter enabled: trueでオフラインモード有効化
+    func setOfflineMode(_ enabled: Bool) {
+        isOfflineMode = enabled
     }
     
     // MARK: - Private Methods

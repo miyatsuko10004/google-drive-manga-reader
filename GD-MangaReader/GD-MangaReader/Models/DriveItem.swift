@@ -31,6 +31,12 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     /// 更新日時
     let modifiedTime: Date?
     
+    /// 画像の幅（オプション）
+    let width: Int?
+    
+    /// 画像の高さ（オプション）
+    let height: Int?
+    
     // MARK: - Computed Properties
     
     /// フォルダかどうか
@@ -40,12 +46,19 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     
     /// アーカイブファイルかどうか (ZIP/RAR/CBZ/CBR)
     var isArchive: Bool {
-        Config.SupportedFormats.archiveExtensions.contains(fileExtension.lowercased())
+        Config.SupportedFormats.archiveExtensions.contains(fileExtension.lowercased()) ||
+        mimeType == "application/zip" ||
+        mimeType == "application/x-zip-compressed" ||
+        mimeType == "application/x-rar-compressed" ||
+        mimeType == "application/vnd.rar" ||
+        mimeType == "application/x-cbz" ||
+        mimeType == "application/x-cbr"
     }
     
     /// 画像ファイルかどうか
     var isImage: Bool {
-        Config.SupportedFormats.imageExtensions.contains(fileExtension.lowercased())
+        Config.SupportedFormats.imageExtensions.contains(fileExtension.lowercased()) ||
+        mimeType.hasPrefix("image/")
     }
     
     /// ファイル拡張子
@@ -90,6 +103,25 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - LocalComic Extension
+
+extension DriveItem {
+    /// LocalComicからDriveItemオブジェクトを生成するマッピングイニシャライザ
+    /// - Parameter localComic: ダウンロード済みの漫画データ
+    init(from localComic: LocalComic) {
+        self.id = localComic.driveFileId
+        self.name = localComic.title
+        self.mimeType = "application/zip" // 一括アーカイブを模倣
+        self.size = localComic.originalFileSize
+        self.thumbnailURL = localComic.imagePaths.first // ローカルの絶対URLをサムネイルとして使用
+        self.parentId = nil
+        self.createdTime = localComic.downloadedAt
+        self.modifiedTime = localComic.lastReadAt
+        self.width = nil
+        self.height = nil
+    }
+}
+
 // MARK: - Mock Data for Preview
 
 extension DriveItem {
@@ -101,7 +133,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: nil,
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockZipFile = DriveItem(
@@ -112,7 +146,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: "folder-1",
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockRarFile = DriveItem(
@@ -123,7 +159,9 @@ extension DriveItem {
         thumbnailURL: nil,
         parentId: "folder-1",
         createdTime: Date(),
-        modifiedTime: Date()
+        modifiedTime: Date(),
+        width: nil,
+        height: nil
     )
     
     static let mockItems: [DriveItem] = [

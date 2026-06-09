@@ -1,127 +1,114 @@
-// ToastView.swift
-// GD-MangaReader
-
 import SwiftUI
 
+/// トースト通知のデータ
 struct ToastData: Equatable {
+    enum ToastType {
+        case success
+        case error
+        case info
+        case warning
+        
+        var icon: String {
+            switch self {
+            case .success: return "checkmark.circle.fill"
+            case .error: return "exclamationmark.circle.fill"
+            case .info: return "info.circle.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            }
+        }
+        
+        var color: Color {
+            switch self {
+            case .success: return .green
+            case .error: return .red
+            case .info: return .blue
+            case .warning: return .orange
+            }
+        }
+    }
+    
     let title: String
-    let message: String?
+    let message: String
     let type: ToastType
 }
 
-enum ToastType {
-    case info
-    case success
-    case error
+/// トースト通知を表示するビュー
+struct ToastView: View {
+    let data: ToastData
+    let onDismiss: () -> Void
+    @State private var dismissTask: Task<Void, Never>? = nil
     
-    var icon: String {
-        switch self {
-        case .info: return "info.circle.fill"
-        case .success: return "checkmark.circle.fill"
-        case .error: return "xmark.octagon.fill"
+    var body: some View {
+        VStack {
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Image(systemName: data.type.icon)
+                    .foregroundColor(data.type.color)
+                    .font(.title2)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(data.title)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Text(data.message)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .padding(.horizontal)
+            .padding(.bottom, 20)
         }
-    }
-    
-    var color: Color {
-        switch self {
-        case .info: return .blue
-        case .success: return .green
-        case .error: return .red
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onAppear {
+            dismissTask?.cancel()
+            dismissTask = Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    onDismiss()
+                }
+            }
+        }
+        .onDisappear {
+            dismissTask?.cancel()
+            dismissTask = nil
+        }
+        .onTapGesture {
+            dismissTask?.cancel()
+            onDismiss()
         }
     }
 }
 
+/// トースト表示用モディファイア
 struct ToastModifier: ViewModifier {
     @Binding var toast: ToastData?
-    @State private var task: Task<Void, Swift.Error>?
     
     func body(content: Content) -> some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(
-                ZStack {
-                    mainToastView()
-                }
-                .animation(.spring(), value: toast)
-            )
-            .onChange(of: toast) { _, newValue in
-                showToast()
-            }
-            .onDisappear {
-                task?.cancel()
-                task = nil
-            }
-    }
-    
-    @ViewBuilder
-    func mainToastView() -> some View {
-        if let toast = toast {
-            VStack {
-                Spacer() // 上部に出すか下部に出すかで調整。今回は下部に出す
-                HStack(alignment: .center, spacing: 12) {
-                    Image(systemName: toast.type.icon)
-                        .foregroundColor(toast.type.color)
-                        .font(.title3)
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(toast.title)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.primary)
-                        
-                        if let message = toast.message {
-                            Text(message)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    Spacer(minLength: 10)
-                    
-                    Button {
-                        dismissToast()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundColor(.secondary)
+        ZStack {
+            content
+            
+            if let data = toast {
+                ToastView(data: data) {
+                    withAnimation {
+                        toast = nil
                     }
                 }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground).opacity(0.95))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 30) // フッター等との被りを避ける
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            .zIndex(100)
-        }
-    }
-    
-    private func showToast() {
-        guard toast != nil else { return }
-        
-        task?.cancel()
-        
-        task = Task {
-            try? await Task.sleep(nanoseconds: 3_500_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                dismissToast()
             }
         }
-    }
-    
-    private func dismissToast() {
-        withAnimation(.spring()) {
-            toast = nil
-        }
-        
-        task?.cancel()
-        task = nil
     }
 }
 
 extension View {
+    /// トースト通知を表示する
     func toastView(toast: Binding<ToastData?>) -> some View {
         self.modifier(ToastModifier(toast: toast))
     }
