@@ -3,7 +3,7 @@
 ## ディレクトリ構成パターン
 本プロジェクトは、機能/役割ごとのレイヤード構造を採用しています。
 
-```
+```text
 GD-MangaReader/          # XcodeGen用ルートディレクトリ
 ├── project.yml          # XcodeGen プロジェクト定義ファイル
 ├── Secrets.xcconfig     # 機密設定 (Git対象外)

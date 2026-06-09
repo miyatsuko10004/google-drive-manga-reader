@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var selectedFolderForBulk: DriveItem?
     @State private var localRefreshTrigger = 0
     @State private var toast: ToastData?
+    @State private var loadTask: Task<Void, Never>?
     
     struct ComicSession: Identifiable, Equatable {
         var id: String { source.id }
@@ -71,8 +72,9 @@ struct LibraryView: View {
             await libraryViewModel.loadFiles()
         }
         .onChange(of: authViewModel.isOfflineMode) { _, newValue in
+            loadTask?.cancel()
             libraryViewModel.isOfflineMode = newValue
-            Task {
+            loadTask = Task {
                 await libraryViewModel.loadFiles()
             }
         }
@@ -784,11 +786,21 @@ struct AlertsAndSheetsModifier: ViewModifier {
                         } else {
                             // オンライン時の制御
                             // 次の巻が画像（ストリーミング）の場合
-                            if nextItem.isFolder || nextItem.isImage {
+                            if nextItem.isFolder {
                                 let source = RemoteComicSource(
                                     folderId: nextItem.id,
                                     title: nextItem.name,
                                     files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
+                                    driveService: libraryViewModel.driveService,
+                                    parentId: libraryViewModel.currentFolderId
+                                )
+                                readingSession = LibraryView.ComicSession(source: source)
+                            } else if nextItem.isImage {
+                                let folderId = nextItem.parentId ?? libraryViewModel.currentFolderId ?? ""
+                                let source = RemoteComicSource(
+                                    folderId: folderId,
+                                    title: nextItem.name,
+                                    files: [nextItem],
                                     driveService: libraryViewModel.driveService,
                                     parentId: libraryViewModel.currentFolderId
                                 )

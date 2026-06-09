@@ -258,6 +258,8 @@ final class LibraryViewModel {
         errorMessage = nil
         
         if isOfflineMode {
+            self.folderPath = []
+            self.currentFolderId = nil
             let localComics = (try? LocalStorageService.shared.loadComics()) ?? []
             self.items = localComics
                 .filter { $0.status == .completed }
