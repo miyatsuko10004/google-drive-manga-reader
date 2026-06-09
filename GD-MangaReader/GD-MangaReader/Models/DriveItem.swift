@@ -46,12 +46,19 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     
     /// アーカイブファイルかどうか (ZIP/RAR/CBZ/CBR)
     var isArchive: Bool {
-        Config.SupportedFormats.archiveExtensions.contains(fileExtension.lowercased())
+        Config.SupportedFormats.archiveExtensions.contains(fileExtension.lowercased()) ||
+        mimeType == "application/zip" ||
+        mimeType == "application/x-zip-compressed" ||
+        mimeType == "application/x-rar-compressed" ||
+        mimeType == "application/vnd.rar" ||
+        mimeType == "application/x-cbz" ||
+        mimeType == "application/x-cbr"
     }
     
     /// 画像ファイルかどうか
     var isImage: Bool {
-        Config.SupportedFormats.imageExtensions.contains(fileExtension.lowercased())
+        Config.SupportedFormats.imageExtensions.contains(fileExtension.lowercased()) ||
+        mimeType.hasPrefix("image/")
     }
     
     /// ファイル拡張子

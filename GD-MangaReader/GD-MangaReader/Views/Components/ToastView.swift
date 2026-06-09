@@ -36,6 +36,7 @@ struct ToastData: Equatable {
 struct ToastView: View {
     let data: ToastData
     let onDismiss: () -> Void
+    @State private var dismissTask: Task<Void, Never>? = nil
     
     var body: some View {
         VStack {
@@ -67,11 +68,21 @@ struct ToastView: View {
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                onDismiss()
+            dismissTask?.cancel()
+            dismissTask = Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    onDismiss()
+                }
             }
         }
+        .onDisappear {
+            dismissTask?.cancel()
+            dismissTask = nil
+        }
         .onTapGesture {
+            dismissTask?.cancel()
             onDismiss()
         }
     }
