@@ -753,7 +753,10 @@ struct AlertsAndSheetsModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
-                if let nextComic = notification.object as? LocalComic {
+                if var nextComic = notification.object as? LocalComic {
+                    // 次の巻は1ページ目から表示する
+                    nextComic.lastReadPage = 0
+
                     // 現在のセッションを一度閉じてから新しいセッションを開く
                     readingSession = nil
                     
@@ -772,8 +775,10 @@ struct AlertsAndSheetsModifier: ViewModifier {
                         if authViewModel.isOfflineMode {
                             // オフラインモード時の制御
                             if nextItem.isArchive,
-                               let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                               var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
                                existingComic.status == .completed {
+                                // 次の巻は1ページ目から表示する
+                                existingComic.lastReadPage = 0
                                 readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
                             } else {
                                 // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
@@ -807,8 +812,10 @@ struct AlertsAndSheetsModifier: ViewModifier {
                                 readingSession = LibraryView.ComicSession(source: source)
                             } else if nextItem.isArchive {
                                 // アーカイブの場合はダウンロード済みかチェック
-                                if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                                if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
                                    existingComic.status == .completed {
+                                    // 次の巻は1ページ目から表示する
+                                    existingComic.lastReadPage = 0
                                     readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
                                 } else {
                                     // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
