@@ -756,7 +756,7 @@ final class ReaderViewModel {
         // 次の巻がない、または最終ページでない場合は表示しない
         guard let lastIndex = pageIndices.last,
               currentPage == lastIndex,
-              (nextComic != nil || nextDriveItem != nil) else {
+              nextComic != nil || nextDriveItem != nil else {
             showNextVolumeSuggestion = false
             return
         }
