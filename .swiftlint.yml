@@ -2,6 +2,7 @@ disabled_rules: # 無効化するルール
   - trailing_whitespace
   - multiple_closures_with_trailing_closure
   - type_name
+  - control_statement
   
 opt_in_rules: # 有効化するルール
   - empty_count
