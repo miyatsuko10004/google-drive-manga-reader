@@ -45,7 +45,6 @@ struct ReaderView: View {
                     }
                 }
             }
-            .id(source.id) // sourceが変わったらViewとStateを強制再生成
             .onTapGesture(coordinateSpace: .local) { location in
                 handleTap(at: location, in: geometry.size)
             }
@@ -64,6 +63,7 @@ struct ReaderView: View {
                 viewModel.prefetchImages()
             }
         }
+        .id(source.id) // sourceが変わったらViewとStateを強制再生成
         .ignoresSafeArea()
         .statusBarHidden(!viewModel.showUI)
         .focusable()
