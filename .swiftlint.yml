@@ -28,6 +28,10 @@ function_body_length:
 type_body_length:
   warning: 400
 
+file_length:
+  warning: 1200
+  error: 1500
+
 identifier_name:
   min_length:
     warning: 2
