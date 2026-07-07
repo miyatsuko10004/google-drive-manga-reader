@@ -288,7 +288,9 @@ final class DownloaderViewModel {
         errorMessage = nil
         currentFileName = nil
         isFolderDownload = false
-        cancellationFlag = CancellationFlag()
+        // cancellationFlagは意図的にリセットしない: cancel()が呼ばれてから
+        // downloadAndExtract/downloadFolderの先頭のreset()が実行されるまでの間に
+        // キャンセル要求が届いた場合、ここで作り直すとその要求が消えてしまう
         cleanupTempFileURL = nil
         cleanupComicDirectory = nil
     }

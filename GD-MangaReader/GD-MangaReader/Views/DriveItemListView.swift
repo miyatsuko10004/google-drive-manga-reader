@@ -31,6 +31,7 @@ struct DriveItemListView: View {
                     .driveItemContextMenu(
                         for: item,
                         isDownloaded: libraryViewModel.downloadedComics[item.id] != nil,
+                        isQueued: downloadQueue.isInQueue(driveFileId: item.id),
                         isOfflineMode: libraryViewModel.isOfflineMode,
                         onBulkDownload: onBulkDownload,
                         onDownloadSingle: onDownloadSingle,
@@ -47,6 +48,7 @@ struct DriveItemListView: View {
 struct DriveItemContextMenuModifier: ViewModifier {
     let item: DriveItem
     let isDownloaded: Bool
+    let isQueued: Bool
     let isOfflineMode: Bool
     let onBulkDownload: (DriveItem) -> Void
     let onDownloadSingle: (DriveItem) -> Void
@@ -66,7 +68,8 @@ struct DriveItemContextMenuModifier: ViewModifier {
             }
         } else if item.isArchive {
             content.contextMenu {
-                if !isDownloaded {
+                // ダウンロード済み・キュー投入済みの場合は「この巻をダウンロード」を出さない
+                if !isDownloaded && !isQueued {
                     Button {
                         onDownloadSingle(item)
                     } label: {
@@ -90,6 +93,7 @@ extension View {
     func driveItemContextMenu(
         for item: DriveItem,
         isDownloaded: Bool,
+        isQueued: Bool,
         isOfflineMode: Bool,
         onBulkDownload: @escaping (DriveItem) -> Void,
         onDownloadSingle: @escaping (DriveItem) -> Void,
@@ -98,6 +102,7 @@ extension View {
         modifier(DriveItemContextMenuModifier(
             item: item,
             isDownloaded: isDownloaded,
+            isQueued: isQueued,
             isOfflineMode: isOfflineMode,
             onBulkDownload: onBulkDownload,
             onDownloadSingle: onDownloadSingle,

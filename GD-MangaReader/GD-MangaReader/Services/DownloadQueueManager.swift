@@ -111,6 +111,11 @@ final class DownloadQueueManager {
     private var authorizer: (any GTMSessionFetcherAuthorizer)?
     private var accessToken: String?
 
+    /// 各タスク開始前にアクセストークンを最新化するためのクロージャ
+    /// バックグラウンドダウンロードは長時間実行されうるため、configure時の
+    /// トークンをキャッシュしたまま使い続けると途中で失効する可能性がある
+    private var refreshAccessToken: (() async -> String?)?
+
     /// アプリがバックグラウンドに移行しても処理を継続するためのタスクID
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
@@ -149,11 +154,13 @@ final class DownloadQueueManager {
     func configure(
         driveService: DriveService,
         authorizer: (any GTMSessionFetcherAuthorizer)?,
-        accessToken: String?
+        accessToken: String?,
+        refreshAccessToken: (() async -> String?)? = nil
     ) {
         self.driveService = driveService
         self.authorizer = authorizer
         self.accessToken = accessToken
+        self.refreshAccessToken = refreshAccessToken
     }
 
     // MARK: - Enqueue
@@ -200,6 +207,9 @@ final class DownloadQueueManager {
             if isDownloaded(driveFileId: item.id) { continue }
             if tasks.contains(where: { $0.driveFileId == item.id && !$0.state.isFinished }) { continue }
 
+            // 同じファイルの失敗/キャンセル済みタスクが残っていれば、再試行時に重複させず置き換える
+            tasks.removeAll { $0.driveFileId == item.id && $0.state.isFinished }
+
             tasks.append(DownloadQueueTask(target: .file(item)))
             added += 1
         }
@@ -214,21 +224,39 @@ final class DownloadQueueManager {
     /// フォルダ内の全アーカイブをキューに追加（シリーズ一括ダウンロード）
     /// - Returns: 新規に追加した件数
     func enqueueSeries(folder: DriveItem) async throws -> Int {
-        guard let driveService else { return 0 }
+        let archives = try await fetchAllArchives(inFolder: folder.id)
+        return enqueue(items: archives)
+    }
+
+    /// フォルダ内の全アーカイブをリモートから再取得し、指定アイテム以降をキューに追加
+    /// UI側の表示リストはページング・検索フィルタで一部しか見えていない場合があるため、
+    /// 対象を必ず全件取得してから判定する（`enqueueSeries`と同じ方針）
+    /// - Returns: (新規に追加した件数, 対象巻数（ダウンロード済み含む全件）)
+    func enqueueFrom(folderId: String, item: DriveItem) async throws -> (added: Int, total: Int) {
+        let archives = try await fetchAllArchives(inFolder: folderId)
+        guard let index = archives.firstIndex(where: { $0.id == item.id }) else {
+            return (0, 0)
+        }
+        let volumes = Array(archives[index...])
+        let added = enqueue(items: volumes)
+        return (added, volumes.count)
+    }
+
+    /// フォルダ内の全アーカイブをページングしながら取得し、名前順にソートして返す
+    private func fetchAllArchives(inFolder folderId: String) async throws -> [DriveItem] {
+        guard let driveService else { return [] }
 
         var allItems: [DriveItem] = []
-        var token: String? = nil
+        var token: String?
         repeat {
-            let result = try await driveService.listFiles(in: folder.id, pageToken: token)
+            let result = try await driveService.listFiles(in: folderId, pageToken: token)
             allItems.append(contentsOf: result.items)
             token = result.nextPageToken
         } while token != nil
 
-        let archives = allItems
+        return allItems
             .filter { $0.isArchive }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-
-        return enqueue(items: archives)
     }
 
     // MARK: - Cancel / Clear
@@ -322,10 +350,13 @@ final class DownloadQueueManager {
 
         task.state = .running
         let downloader = DownloaderViewModel(driveService: driveService)
-        downloader.configure(with: authorizer, accessToken: accessToken)
         task.downloader = downloader
 
         task.runner = Task { [weak self] in
+            // 実行開始直前にトークンを最新化してから設定する（長時間キュー待機後の失効対策）
+            let freshToken = await self?.refreshAccessToken?() ?? self?.accessToken
+            downloader.configure(with: self?.authorizer, accessToken: freshToken)
+
             let comic: LocalComic?
             switch task.target {
             case .file(let item):

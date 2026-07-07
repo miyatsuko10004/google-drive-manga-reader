@@ -52,8 +52,22 @@ final class AuthViewModel {
     var accessToken: String? {
         currentUser?.accessToken.tokenString
     }
-    
+
     // MARK: - Methods
+
+    /// 必要に応じてアクセストークンを更新して取得する
+    /// バックグラウンドダウンロードのように長時間にわたる処理では、
+    /// 開始時にキャッシュしたトークンが途中で失効する可能性があるため、
+    /// 各ダウンロード開始前にこれを呼び直してトークンを最新化する
+    func refreshedAccessToken() async -> String? {
+        guard let user = currentUser else { return nil }
+
+        guard let refreshedUser = try? await user.refreshTokensIfNeeded() else {
+            return accessToken
+        }
+        currentUser = refreshedUser
+        return refreshedUser.accessToken.tokenString
+    }
     
     /// 前回のサインイン情報を復元
     func restorePreviousSignIn() async {

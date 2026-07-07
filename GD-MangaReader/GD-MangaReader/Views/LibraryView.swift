@@ -76,7 +76,8 @@ struct LibraryView: View {
             downloadQueue.configure(
                 driveService: libraryViewModel.driveService,
                 authorizer: authViewModel.authorizer,
-                accessToken: authViewModel.accessToken
+                accessToken: authViewModel.accessToken,
+                refreshAccessToken: { await authViewModel.refreshedAccessToken() }
             )
             downloadQueue.onTaskFinished = { _ in
                 libraryViewModel.refreshDownloadedComics()
@@ -496,7 +497,10 @@ struct LibraryView: View {
     /// 巻の長押し: この巻のみダウンロード（即キュー追加）
     private func handleDownloadSingle(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
-        if downloadQueue.enqueue(.file(item)) != nil {
+        // 既にキュー中の場合はenqueueが既存タスクを返すため、事前にチェックして
+        // 「追加しました」という誤解を招くトーストが出ないようにする
+        let alreadyQueued = downloadQueue.isInQueue(driveFileId: item.id)
+        if downloadQueue.enqueue(.file(item)) != nil && !alreadyQueued {
             toast = ToastData(
                 title: "ダウンロード開始",
                 message: "\(item.name) をキューに追加しました",
@@ -831,13 +835,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
 
-    /// 表示中の並び順で、指定した巻以降のアーカイブ一覧を取得
-    private func volumesFrom(_ item: DriveItem) -> [DriveItem] {
-        let archives = libraryViewModel.filteredItems.filter { $0.isArchive }
-        guard let index = archives.firstIndex(where: { $0.id == item.id }) else { return [] }
-        return Array(archives[index...])
-    }
-
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
@@ -960,25 +957,45 @@ struct AlertsAndSheetsModifier: ViewModifier {
             .alert("この巻以降をダウンロード", isPresented: $showingCascadeDownloadConfirmation) {
                 Button("キャンセル", role: .cancel) {}
                 Button("ダウンロード") {
-                    guard let item = selectedItemForCascade else { return }
-                    let added = DownloadQueueManager.shared.enqueue(items: volumesFrom(item))
-                    if added > 0 {
-                        toast = ToastData(
-                            title: "ダウンロード開始",
-                            message: "\(added)件をキューに追加しました",
-                            type: .info
-                        )
-                    } else {
-                        toast = ToastData(
-                            title: "ダウンロード",
-                            message: "追加できるファイルがありません（ダウンロード済み）",
-                            type: .info
-                        )
+                    guard let item = selectedItemForCascade,
+                          let folderId = libraryViewModel.currentFolderId else { return }
+                    Task { @MainActor in
+                        do {
+                            let (added, total) = try await DownloadQueueManager.shared.enqueueFrom(
+                                folderId: folderId,
+                                item: item
+                            )
+                            if added > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード開始",
+                                    message: "\(item.name)以降の\(added)件をキューに追加しました",
+                                    type: .info
+                                )
+                            } else if total > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード",
+                                    message: "追加できるファイルがありません（ダウンロード済み）",
+                                    type: .info
+                                )
+                            } else {
+                                toast = ToastData(
+                                    title: "ダウンロード失敗",
+                                    message: "対象の巻が見つかりませんでした",
+                                    type: .error
+                                )
+                            }
+                        } catch {
+                            toast = ToastData(
+                                title: "ダウンロード失敗",
+                                message: error.localizedDescription,
+                                type: .error
+                            )
+                        }
                     }
                 }
             } message: {
                 if let item = selectedItemForCascade {
-                    Text("「\(item.name)」以降の\(volumesFrom(item).count)件をバックグラウンドでダウンロードします。")
+                    Text("「\(item.name)」以降のアーカイブをバックグラウンドでダウンロードします。")
                 }
             }
             .sheet(isPresented: $showingDownloadQueue) {

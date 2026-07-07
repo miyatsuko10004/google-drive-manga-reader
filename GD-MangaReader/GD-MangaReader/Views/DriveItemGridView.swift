@@ -32,6 +32,7 @@ struct DriveItemGridView: View {
                     .driveItemContextMenu(
                         for: item,
                         isDownloaded: libraryViewModel.downloadedComics[item.id] != nil,
+                        isQueued: downloadQueue.isInQueue(driveFileId: item.id),
                         isOfflineMode: libraryViewModel.isOfflineMode,
                         onBulkDownload: onBulkDownload,
                         onDownloadSingle: onDownloadSingle,
