@@ -835,16 +835,30 @@ struct AlertsAndSheetsModifier: ViewModifier {
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
 
+    /// 「次のDriveアイテムを開く」処理の最新リクエストを追跡するトークン
+    /// 0.6秒の遅延やフォルダ内一覧取得中に別の遷移リクエストが割り込んだ場合、
+    /// 古いリクエストがreadingSessionを上書きしてしまうのを防ぐために使う
+    @State private var pendingOpenNextDriveItemID: String?
+
     /// リーダーからの「次のDriveアイテムを開く」通知を処理する
     private func handleOpenNextDriveItem(_ nextItem: DriveItem) {
+        // 通知受信時点でリクエストIDと現在のフォルダIDをスナップショットする
+        // （遅延中にフォルダ移動やさらに新しい遷移が発生しても影響を受けないようにするため）
+        let requestID = nextItem.id
+        let parentId = libraryViewModel.currentFolderId
+        pendingOpenNextDriveItemID = requestID
+
         // 現在のセッションを閉じる
         readingSession = nil
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            // この間に別のリクエストが割り込んでいたら何もしない
+            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
+
             if authViewModel.isOfflineMode {
                 openNextDriveItemOffline(nextItem)
             } else {
-                openNextDriveItemOnline(nextItem)
+                openNextDriveItemOnline(nextItem, requestID: requestID, parentId: parentId)
             }
         }
     }
@@ -868,18 +882,18 @@ struct AlertsAndSheetsModifier: ViewModifier {
     }
 
     /// オンライン時: アイテムの種類に応じてソースを構築する
-    private func openNextDriveItemOnline(_ nextItem: DriveItem) {
+    private func openNextDriveItemOnline(_ nextItem: DriveItem, requestID: String, parentId: String?) {
         if nextItem.isFolder {
-            openNextFolder(nextItem)
+            openNextFolder(nextItem, requestID: requestID, parentId: parentId)
         } else if nextItem.isImage {
-            openNextImage(nextItem)
+            openNextImage(nextItem, parentId: parentId)
         } else if nextItem.isArchive {
             openNextArchive(nextItem)
         }
     }
 
     /// 次の巻がフォルダ（画像ストリーミング）の場合
-    private func openNextFolder(_ nextItem: DriveItem) {
+    private func openNextFolder(_ nextItem: DriveItem, requestID: String, parentId: String?) {
         // フォルダ内の画像一覧を取得してからソースを構築する
         // （空のfilesを渡すとpageCount=0のまま固定されてしまうため）
         Task { @MainActor in
@@ -913,22 +927,22 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 return
             }
 
-            // 取得中にユーザーが別のセッションを開始していた場合は、それを上書きしない
-            guard readingSession == nil else { return }
+            // 取得中に別の遷移リクエストが割り込んでいた場合は、それを上書きしない
+            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
 
             let source = RemoteComicSource(
                 folderId: nextItem.id,
                 title: nextItem.name,
                 files: images,
                 driveService: libraryViewModel.driveService,
-                parentId: libraryViewModel.currentFolderId
+                parentId: parentId
             )
             readingSession = LibraryView.ComicSession(source: source)
         }
     }
 
     /// 次の巻が単独画像の場合
-    private func openNextImage(_ nextItem: DriveItem) {
+    private func openNextImage(_ nextItem: DriveItem, parentId: String?) {
         // idは画像自身のものを使う（親フォルダIDを使うと、同じフォルダ内の
         // 別画像へ連続ジャンプした際にidが変化せず、状態リセットも次巻検出も機能しなくなる）
         let source = RemoteComicSource(
@@ -936,7 +950,7 @@ struct AlertsAndSheetsModifier: ViewModifier {
             title: nextItem.name,
             files: [nextItem],
             driveService: libraryViewModel.driveService,
-            parentId: libraryViewModel.currentFolderId
+            parentId: parentId
         )
         readingSession = LibraryView.ComicSession(source: source)
     }
