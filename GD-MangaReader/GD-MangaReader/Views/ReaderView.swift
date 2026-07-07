@@ -63,7 +63,6 @@ struct ReaderView: View {
                 viewModel.prefetchImages()
             }
         }
-        .id(source.id) // sourceが変わったらViewとStateを強制再生成
         .ignoresSafeArea()
         .statusBarHidden(!viewModel.showUI)
         .focusable()
