@@ -2,17 +2,21 @@ import SwiftUI
 
 struct DriveItemListView: View {
     let libraryViewModel: LibraryViewModel
-    let bulkDownloadManager: BulkDownloadManager
-    @Binding var selectedFolderForBulk: DriveItem?
-    @Binding var showingBulkDownloadConfirmation: Bool
     let onItemTap: (DriveItem) -> Void
-    
+    let onBulkDownload: (DriveItem) -> Void
+    let onDownloadSingle: (DriveItem) -> Void
+    let onDownloadFrom: (DriveItem) -> Void
+
+    private var downloadQueue: DownloadQueueManager { .shared }
+
     var body: some View {
         LazyVStack(spacing: 8) {
             ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemListRow(
                     item: item,
-                    isBulkDownloading: (bulkDownloadManager.isDownloading && item.id == bulkDownloadManager.targetFolderId),
+                    isBulkDownloading: item.isFolder
+                        ? downloadQueue.hasPendingTasks(inFolder: item.id)
+                        : downloadQueue.isInQueue(driveFileId: item.id),
                     localComic: libraryViewModel.downloadedComics[item.id],
                     folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )
@@ -24,13 +28,73 @@ struct DriveItemListView: View {
                     .onTapGesture {
                         onItemTap(item)
                     }
-                    .onLongPressGesture {
-                        if item.isFolder {
-                            selectedFolderForBulk = item
-                            showingBulkDownloadConfirmation = true
-                        }
-                    }
+                    .driveItemContextMenu(
+                        for: item,
+                        isDownloaded: libraryViewModel.downloadedComics[item.id] != nil,
+                        onBulkDownload: onBulkDownload,
+                        onDownloadSingle: onDownloadSingle,
+                        onDownloadFrom: onDownloadFrom
+                    )
             }
         }
+    }
+}
+
+// MARK: - Context Menu
+
+/// フォルダ/アーカイブ用の長押しコンテキストメニュー
+struct DriveItemContextMenuModifier: ViewModifier {
+    let item: DriveItem
+    let isDownloaded: Bool
+    let onBulkDownload: (DriveItem) -> Void
+    let onDownloadSingle: (DriveItem) -> Void
+    let onDownloadFrom: (DriveItem) -> Void
+
+    func body(content: Content) -> some View {
+        if item.isFolder {
+            content.contextMenu {
+                Button {
+                    onBulkDownload(item)
+                } label: {
+                    Label("シリーズ一括ダウンロード", systemImage: "square.and.arrow.down.on.square")
+                }
+            }
+        } else if item.isArchive {
+            content.contextMenu {
+                if !isDownloaded {
+                    Button {
+                        onDownloadSingle(item)
+                    } label: {
+                        Label("この巻をダウンロード", systemImage: "arrow.down.circle")
+                    }
+                }
+
+                Button {
+                    onDownloadFrom(item)
+                } label: {
+                    Label("この巻以降をダウンロード", systemImage: "square.and.arrow.down.on.square")
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func driveItemContextMenu(
+        for item: DriveItem,
+        isDownloaded: Bool,
+        onBulkDownload: @escaping (DriveItem) -> Void,
+        onDownloadSingle: @escaping (DriveItem) -> Void,
+        onDownloadFrom: @escaping (DriveItem) -> Void
+    ) -> some View {
+        modifier(DriveItemContextMenuModifier(
+            item: item,
+            isDownloaded: isDownloaded,
+            onBulkDownload: onBulkDownload,
+            onDownloadSingle: onDownloadSingle,
+            onDownloadFrom: onDownloadFrom
+        ))
     }
 }

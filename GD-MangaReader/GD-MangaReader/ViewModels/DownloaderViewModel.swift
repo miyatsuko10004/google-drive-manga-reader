@@ -31,6 +31,21 @@ final class DownloaderViewModel {
     
     /// 処理中のファイル名
     private(set) var currentFileName: String?
+
+    /// 実行中のURLSessionダウンロードタスク（キャンセル用）
+    private var activeDownloadTask: URLSessionDownloadTask?
+
+    /// キャンセル要求済みフラグ
+    /// 解凍は`Task.detached`内で行われるため、呼び出し元のTaskキャンセルが自動伝播しない。
+    /// このフラグをisCancelledクロージャ経由で解凍ループに渡し、都度チェックさせる。
+    /// `Task.detached`のクロージャ（非MainActor）から読まれるため、スレッドセーフな箱型に格納する
+    private var cancellationFlag = CancellationFlag()
+
+    /// 一時ファイルの後片付けに使う直近パス（キャンセル・失敗時のクリーンアップ用）
+    private var cleanupTempFileURL: URL?
+
+    /// 一時ディレクトリの後片付けに使う直近パス（キャンセル時に部分解凍を削除するため）
+    private var cleanupComicDirectory: URL?
     
     /// 処理中かどうか
     var isProcessing: Bool {
@@ -95,24 +110,37 @@ final class DownloaderViewModel {
             guard let tempFileURL = tempFileURL else {
                 throw DownloaderError.downloadFailed
             }
-            
+            activeDownloadTask = nil
+            cleanupTempFileURL = tempFileURL
+            guard !cancellationFlag.isSet else { throw CancellationError() }
+
             // 2. 解凍先ディレクトリを作成
             status = .extracting
             let comicDirectory = try storageService.createComicDirectory(name: item.name)
-            
+            cleanupComicDirectory = comicDirectory
+
             // 3. 解凍
+            let cancellationFlagRef = cancellationFlag
             let imageFiles = try await archiveService.extract(
                 from: tempFileURL,
-                to: comicDirectory
-            ) { [weak self] progress in
-                Task { @MainActor in
-                    self?.extractProgress = progress
+                to: comicDirectory,
+                progress: { [weak self] progress in
+                    Task { @MainActor in
+                        self?.extractProgress = progress
+                    }
+                },
+                isCancelled: {
+                    cancellationFlagRef.isSet
                 }
-            }
-            
+            )
+
+            // キャンセルが解凍完了直後に来た場合、保存せず破棄する
+            guard !cancellationFlag.isSet else { throw CancellationError() }
+
             // 4. 一時ファイル削除
             storageService.deleteTempFile(at: tempFileURL)
-            
+            cleanupTempFileURL = nil
+
             // 5. LocalComic作成・保存
             let localPath = comicDirectory.lastPathComponent
             let comic = LocalComic(
@@ -123,20 +151,38 @@ final class DownloaderViewModel {
                 originalFileSize: item.size,
                 status: .completed
             )
-            
+
             try storageService.addComic(comic)
-            
+            cleanupComicDirectory = nil
+
             status = .completed
             return comic
-            
-            
+
+        } catch is CancellationError {
+            cleanupAfterFailure()
+            status = .failed
+            errorMessage = "キャンセルされました"
+            return nil
         } catch {
+            cleanupAfterFailure()
             status = .failed
             errorMessage = error.localizedDescription
             return nil
         }
     }
-    
+
+    /// キャンセル・失敗時に残った一時ファイル/部分解凍済みディレクトリを削除
+    private func cleanupAfterFailure() {
+        if let tempFileURL = cleanupTempFileURL {
+            storageService.deleteTempFile(at: tempFileURL)
+            cleanupTempFileURL = nil
+        }
+        if let comicDirectory = cleanupComicDirectory {
+            try? FileManager.default.removeItem(at: comicDirectory)
+            cleanupComicDirectory = nil
+        }
+    }
+
     /// フォルダ内の画像をダウンロードしてLocalComicを作成
     func downloadFolder(folderId: String, folderName: String) async -> LocalComic? {
         reset()
@@ -164,12 +210,14 @@ final class DownloaderViewModel {
             
             // 2. ディレクトリ作成
             let comicDirectory = try storageService.createComicDirectory(name: folderName)
-            
+            cleanupComicDirectory = comicDirectory
+
             // 3. 画像を順次ダウンロード
             var savedFileNames: [String] = []
             let totalCount = Double(images.count)
             
             for (index, image) in images.enumerated() {
+                try Task.checkCancellation()
                 currentFileName = "\(folderName) (\(index + 1)/\(images.count))"
                 
                 // 個別ファイルのダウンロード
@@ -207,17 +255,31 @@ final class DownloaderViewModel {
             )
             
             try storageService.addComic(comic)
-            
+            cleanupComicDirectory = nil
+
             status = .completed
             return comic
-            
+
+        } catch is CancellationError {
+            cleanupAfterFailure()
+            status = .failed
+            errorMessage = "キャンセルされました"
+            return nil
         } catch {
+            cleanupAfterFailure()
             status = .failed
             errorMessage = error.localizedDescription
             return nil
         }
     }
-    
+
+    /// 実行中のダウンロードをキャンセル
+    func cancel() {
+        cancellationFlag.set()
+        activeDownloadTask?.cancel()
+        activeDownloadTask = nil
+    }
+
     /// リセット
     func reset() {
         downloadProgress = 0
@@ -226,6 +288,9 @@ final class DownloaderViewModel {
         errorMessage = nil
         currentFileName = nil
         isFolderDownload = false
+        cancellationFlag = CancellationFlag()
+        cleanupTempFileURL = nil
+        cleanupComicDirectory = nil
     }
     
     // MARK: - Private Methods
@@ -281,6 +346,7 @@ final class DownloaderViewModel {
                 let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
                 delegate.session = session // Retain session internally to invalidate later
                 let task = session.downloadTask(with: request)
+                activeDownloadTask = task
                 task.resume()
             }
         } catch {
@@ -359,6 +425,28 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
             self.session?.invalidateAndCancel()
             self.session = nil
         }
+    }
+}
+
+// MARK: - Cancellation Flag
+
+/// スレッドセーフなキャンセルフラグ
+/// `ArchiveService.extract`は内部で`Task.detached`を使うため、@MainActor上の状態を
+/// 直接参照できない。この箱型を経由することでactor隔離を回避しつつ安全に共有する
+private final class CancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
 

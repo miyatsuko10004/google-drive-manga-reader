@@ -36,76 +36,84 @@ final class ArchiveService {
     // MARK: - Public Methods
     
     /// アーカイブファイルを解凍し、画像ファイル一覧を返す
+    /// - Parameter isCancelled: 呼び出し元がキャンセルされたかを都度チェックするためのクロージャ。
+    ///   内部で`Task.detached`を使用するため、呼び出し元のTaskキャンセルは自動伝播しない
     func extract(
         from sourceURL: URL,
         to destinationURL: URL,
-        progress: (@Sendable (Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil,
+        isCancelled: (@Sendable () -> Bool)? = nil
     ) async throws -> [String] {
         guard let archiveType = ArchiveType(fileName: sourceURL.lastPathComponent) else {
             throw ArchiveServiceError.unsupportedFormat
         }
-        
+
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
         }
-        
+
         switch archiveType {
         case .zip:
-            try await extractZIP(from: sourceURL, to: destinationURL, progress: progress)
+            try await extractZIP(from: sourceURL, to: destinationURL, progress: progress, isCancelled: isCancelled)
         case .rar:
             throw ArchiveServiceError.rarNotSupported
         }
-        
+
         let imageFiles = LocalStorageService.shared.getImageFiles(in: destinationURL)
         return imageFiles
     }
-    
+
     // MARK: - ZIP Extraction
-    
+
     private func extractZIP(
         from sourceURL: URL,
         to destinationURL: URL,
-        progress: (@Sendable (Double) -> Void)?
+        progress: (@Sendable (Double) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
     ) async throws {
         try await Task.detached {
             let fileManager = FileManager.default
-            
+
             guard let archive = Archive(url: sourceURL, accessMode: .read) else {
                 throw ArchiveServiceError.cannotOpenArchive
             }
-            
+
             let entries = Array(archive)
             let totalEntries = entries.count
             var processedEntries = 0
-            
+
             for entry in entries {
+                if isCancelled?() == true {
+                    throw CancellationError()
+                }
+
                 guard entry.type == .file else {
                     processedEntries += 1
                     continue
                 }
-                
+
                 let fileName = entry.path
                 if fileName.hasPrefix(".") || fileName.hasPrefix("__MACOSX") {
                     processedEntries += 1
                     continue
                 }
-                
+
                 let ext = (fileName as NSString).pathExtension.lowercased()
                 guard Config.SupportedFormats.imageExtensions.contains(ext) else {
                     processedEntries += 1
                     continue
                 }
-                
+
                 let baseName = (fileName as NSString).lastPathComponent
                 let destinationPath = destinationURL.appendingPathComponent(baseName)
-                
+
                 if fileManager.fileExists(atPath: destinationPath.path) {
                     try? fileManager.removeItem(at: destinationPath)
                 }
-                
+
                 _ = try archive.extract(entry, to: destinationPath)
-                
+
                 processedEntries += 1
                 if let progress = progress {
                     let progressValue = Double(processedEntries) / Double(totalEntries)

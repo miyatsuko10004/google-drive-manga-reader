@@ -10,14 +10,18 @@ import Kingfisher
 struct LibraryView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @State private var libraryViewModel = LibraryViewModel()
-    @State private var bulkDownloadManager = BulkDownloadManager()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
     @State private var showingBulkDownloadConfirmation = false
     @State private var selectedFolderForBulk: DriveItem?
+    @State private var showingCascadeDownloadConfirmation = false
+    @State private var selectedItemForCascade: DriveItem?
+    @State private var showingDownloadQueue = false
     @State private var localRefreshTrigger = 0
     @State private var toast: ToastData?
+
+    private var downloadQueue: DownloadQueueManager { .shared }
     
     struct ComicSession: Identifiable, Equatable {
         var id: String { source.id }
@@ -46,12 +50,12 @@ struct LibraryView: View {
                 .ignoresSafeArea()
             
             contentLayer
-            
-            // 一括ダウンロードプログレスバナー
-            if bulkDownloadManager.isDownloading {
+
+            // ダウンロードキュープログレスバナー
+            if downloadQueue.isActive {
                 VStack {
                     Spacer()
-                    bulkDownloadBanner
+                    downloadQueueBanner
                 }
             }
         }
@@ -67,6 +71,30 @@ struct LibraryView: View {
         }
         .task {
             libraryViewModel.configure(with: authViewModel.authorizer)
+            downloadQueue.configure(
+                driveService: libraryViewModel.driveService,
+                authorizer: authViewModel.authorizer,
+                accessToken: authViewModel.accessToken
+            )
+            downloadQueue.onTaskFinished = { _ in
+                libraryViewModel.refreshDownloadedComics()
+            }
+            downloadQueue.onQueueDrained = { completed, failed in
+                guard completed + failed > 0 else { return }
+                if failed == 0 {
+                    toast = ToastData(
+                        title: "ダウンロード完了",
+                        message: "\(completed)件のダウンロードが完了しました",
+                        type: .success
+                    )
+                } else {
+                    toast = ToastData(
+                        title: "ダウンロード完了 (\(failed)件失敗)",
+                        message: "\(completed)件完了、\(failed)件失敗しました",
+                        type: .error
+                    )
+                }
+            }
             await libraryViewModel.loadFiles()
         }
         .onChange(of: selectedItem) { _, newValue in
@@ -84,11 +112,13 @@ struct LibraryView: View {
             showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
             selectedItem: $selectedItem,
             selectedFolderForBulk: $selectedFolderForBulk,
+            showingCascadeDownloadConfirmation: $showingCascadeDownloadConfirmation,
+            selectedItemForCascade: $selectedItemForCascade,
+            showingDownloadQueue: $showingDownloadQueue,
             readingSession: $readingSession,
             toast: $toast,
             authViewModel: authViewModel,
-            libraryViewModel: libraryViewModel,
-            bulkDownloadManager: bulkDownloadManager
+            libraryViewModel: libraryViewModel
         ))
     }
     
@@ -163,18 +193,18 @@ struct LibraryView: View {
             DriveItemGridView(
                 gridColumns: gridColumns,
                 libraryViewModel: libraryViewModel,
-                bulkDownloadManager: bulkDownloadManager,
-                selectedFolderForBulk: $selectedFolderForBulk,
-                showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
-                onItemTap: handleItemTap
+                onItemTap: handleItemTap,
+                onBulkDownload: handleBulkDownload,
+                onDownloadSingle: handleDownloadSingle,
+                onDownloadFrom: handleDownloadFrom
             )
         case .list:
             DriveItemListView(
                 libraryViewModel: libraryViewModel,
-                bulkDownloadManager: bulkDownloadManager,
-                selectedFolderForBulk: $selectedFolderForBulk,
-                showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
-                onItemTap: handleItemTap
+                onItemTap: handleItemTap,
+                onBulkDownload: handleBulkDownload,
+                onDownloadSingle: handleDownloadSingle,
+                onDownloadFrom: handleDownloadFrom
             )
         }
     }
@@ -267,39 +297,44 @@ struct LibraryView: View {
         }
     }
     
-    /// 一括ダウンロードバナー
-    private var bulkDownloadBanner: some View {
+    /// ダウンロードキューバナー（タップで一覧表示）
+    private var downloadQueueBanner: some View {
         HStack(spacing: 16) {
             ProgressView()
                 .tint(.white)
-            
+
             VStack(alignment: .leading, spacing: 4) {
-                Text("一括ダウンロード中...")
+                Text("バックグラウンドダウンロード中...")
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                
+
                 HStack {
-                    ProgressView(
-                        value: Double(bulkDownloadManager.currentCount),
-                        total: Double(max(1, bulkDownloadManager.totalCount))
-                    )
-                    .progressViewStyle(.linear)
-                    .tint(.green)
-                    
-                    Text("\(bulkDownloadManager.currentCount) / \(bulkDownloadManager.totalCount)")
+                    ProgressView(value: downloadQueue.overallProgress)
+                        .progressViewStyle(.linear)
+                        .tint(.green)
+
+                    Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.8))
                 }
             }
+
+            Image(systemName: "chevron.up")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.8))
         }
         .padding()
         .background(Color.black.opacity(0.8))
         .cornerRadius(12)
         .padding()
         .shadow(radius: 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            showingDownloadQueue = true
+        }
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(), value: bulkDownloadManager.isDownloading)
+        .animation(.spring(), value: downloadQueue.isActive)
     }
     
     /// ツールバー
@@ -342,7 +377,14 @@ struct LibraryView: View {
                 }
                 
                 Divider()
-                
+
+                // ダウンロード一覧
+                Button {
+                    showingDownloadQueue = true
+                } label: {
+                    Label("ダウンロード", systemImage: "arrow.down.circle")
+                }
+
                 // ストレージ管理
                 NavigationLink {
                     StorageManagementView()
@@ -365,7 +407,30 @@ struct LibraryView: View {
     }
     
     // MARK: - Actions
-    
+
+    /// フォルダ長押し: シリーズ一括ダウンロードの確認
+    private func handleBulkDownload(_ folder: DriveItem) {
+        selectedFolderForBulk = folder
+        showingBulkDownloadConfirmation = true
+    }
+
+    /// 巻の長押し: この巻のみダウンロード（即キュー追加）
+    private func handleDownloadSingle(_ item: DriveItem) {
+        if downloadQueue.enqueue(.file(item)) != nil {
+            toast = ToastData(
+                title: "ダウンロード開始",
+                message: "\(item.name) をキューに追加しました",
+                type: .info
+            )
+        }
+    }
+
+    /// 巻の長押し: この巻以降をダウンロードの確認
+    private func handleDownloadFrom(_ item: DriveItem) {
+        selectedItemForCascade = item
+        showingCascadeDownloadConfirmation = true
+    }
+
     private func handleItemTap(_ item: DriveItem) {
         if item.isFolder {
             Task { await libraryViewModel.navigateToFolder(item) }
@@ -660,13 +725,22 @@ struct AlertsAndSheetsModifier: ViewModifier {
     @Binding var showingBulkDownloadConfirmation: Bool
     @Binding var selectedItem: DriveItem?
     @Binding var selectedFolderForBulk: DriveItem?
+    @Binding var showingCascadeDownloadConfirmation: Bool
+    @Binding var selectedItemForCascade: DriveItem?
+    @Binding var showingDownloadQueue: Bool
     @Binding var readingSession: LibraryView.ComicSession?
     @Binding var toast: ToastData?
-    
+
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
-    let bulkDownloadManager: BulkDownloadManager
-    
+
+    /// 表示中の並び順で、指定した巻以降のアーカイブ一覧を取得
+    private func volumesFrom(_ item: DriveItem) -> [DriveItem] {
+        let archives = libraryViewModel.filteredItems.filter { $0.isArchive }
+        guard let index = archives.firstIndex(where: { $0.id == item.id }) else { return [] }
+        return Array(archives[index...])
+    }
+
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
@@ -734,45 +808,63 @@ struct AlertsAndSheetsModifier: ViewModifier {
             .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
                 Button("キャンセル", role: .cancel) {}
                 Button("ダウンロード") {
-                    if let folder = selectedFolderForBulk {
-                        bulkDownloadManager.downloadSeries(
-                            folder: folder,
-                            driveService: libraryViewModel.driveService,
-                            authorizer: authViewModel.authorizer,
-                            accessToken: authViewModel.accessToken,
-                            onComplete: { failedCount in
-                                Task { @MainActor in
-                                    if failedCount == 0 {
-                                        toast = ToastData(
-                                            title: "ダウンロード完了",
-                                            message: "\(folder.name) のダウンロードが完了しました",
-                                            type: .success
-                                        )
-                                    } else {
-                                        let title = "ダウンロード完了 (\(failedCount)件失敗)"
-                                        let message = "\(folder.name) のダウンロードが完了しましたが、"
-                                            + "一部失敗しました"
-                                        toast = ToastData(title: title, message: message, type: .error)
-                                    }
-                                }
-                            },
-                            onError: { error in
-                                Task { @MainActor in
-                                    toast = ToastData(
-                                        title: "ダウンロード失敗",
-                                        message: error.localizedDescription,
-                                        type: .error
-                                    )
-                                }
+                    guard let folder = selectedFolderForBulk else { return }
+                    Task { @MainActor in
+                        do {
+                            let added = try await DownloadQueueManager.shared.enqueueSeries(folder: folder)
+                            if added > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード開始",
+                                    message: "\(folder.name) の\(added)件をキューに追加しました",
+                                    type: .info
+                                )
+                            } else {
+                                toast = ToastData(
+                                    title: "ダウンロード",
+                                    message: "追加できるファイルがありません（ダウンロード済み）",
+                                    type: .info
+                                )
                             }
-                        )
-                        toast = ToastData(title: "ダウンロード開始", message: "\(folder.name) のダウンロードを開始しました", type: .info)
+                        } catch {
+                            toast = ToastData(
+                                title: "ダウンロード失敗",
+                                message: error.localizedDescription,
+                                type: .error
+                            )
+                        }
                     }
                 }
             } message: {
                 if let folder = selectedFolderForBulk {
-                    Text("\(folder.name)内のアーカイブを一括ダウンロードします。")
+                    Text("\(folder.name)内のアーカイブをバックグラウンドで一括ダウンロードします。")
                 }
+            }
+            .alert("この巻以降をダウンロード", isPresented: $showingCascadeDownloadConfirmation) {
+                Button("キャンセル", role: .cancel) {}
+                Button("ダウンロード") {
+                    guard let item = selectedItemForCascade else { return }
+                    let added = DownloadQueueManager.shared.enqueue(items: volumesFrom(item))
+                    if added > 0 {
+                        toast = ToastData(
+                            title: "ダウンロード開始",
+                            message: "\(added)件をキューに追加しました",
+                            type: .info
+                        )
+                    } else {
+                        toast = ToastData(
+                            title: "ダウンロード",
+                            message: "追加できるファイルがありません（ダウンロード済み）",
+                            type: .info
+                        )
+                    }
+                }
+            } message: {
+                if let item = selectedItemForCascade {
+                    Text("「\(item.name)」以降の\(volumesFrom(item).count)件をバックグラウンドでダウンロードします。")
+                }
+            }
+            .sheet(isPresented: $showingDownloadQueue) {
+                DownloadQueueView()
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定

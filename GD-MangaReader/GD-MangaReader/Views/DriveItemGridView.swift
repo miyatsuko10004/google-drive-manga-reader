@@ -3,17 +3,21 @@ import SwiftUI
 struct DriveItemGridView: View {
     let gridColumns: [GridItem]
     let libraryViewModel: LibraryViewModel
-    let bulkDownloadManager: BulkDownloadManager
-    @Binding var selectedFolderForBulk: DriveItem?
-    @Binding var showingBulkDownloadConfirmation: Bool
     let onItemTap: (DriveItem) -> Void
-    
+    let onBulkDownload: (DriveItem) -> Void
+    let onDownloadSingle: (DriveItem) -> Void
+    let onDownloadFrom: (DriveItem) -> Void
+
+    private var downloadQueue: DownloadQueueManager { .shared }
+
     var body: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(libraryViewModel.filteredItems) { item in
                 DriveItemGridCell(
                     item: item,
-                    isBulkDownloading: (bulkDownloadManager.isDownloading && item.id == bulkDownloadManager.targetFolderId),
+                    isBulkDownloading: item.isFolder
+                        ? downloadQueue.hasPendingTasks(inFolder: item.id)
+                        : downloadQueue.isInQueue(driveFileId: item.id),
                     localComic: libraryViewModel.downloadedComics[item.id],
                     folderThumbnails: libraryViewModel.folderThumbnails[item.id]
                 )
@@ -25,12 +29,13 @@ struct DriveItemGridView: View {
                     .onTapGesture {
                         onItemTap(item)
                     }
-                    .onLongPressGesture {
-                        if item.isFolder {
-                            selectedFolderForBulk = item
-                            showingBulkDownloadConfirmation = true
-                        }
-                    }
+                    .driveItemContextMenu(
+                        for: item,
+                        isDownloaded: libraryViewModel.downloadedComics[item.id] != nil,
+                        onBulkDownload: onBulkDownload,
+                        onDownloadSingle: onDownloadSingle,
+                        onDownloadFrom: onDownloadFrom
+                    )
             }
         }
     }
