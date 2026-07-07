@@ -31,6 +31,7 @@ struct DriveItemListView: View {
                     .driveItemContextMenu(
                         for: item,
                         isDownloaded: libraryViewModel.downloadedComics[item.id] != nil,
+                        isOfflineMode: libraryViewModel.isOfflineMode,
                         onBulkDownload: onBulkDownload,
                         onDownloadSingle: onDownloadSingle,
                         onDownloadFrom: onDownloadFrom
@@ -46,12 +47,16 @@ struct DriveItemListView: View {
 struct DriveItemContextMenuModifier: ViewModifier {
     let item: DriveItem
     let isDownloaded: Bool
+    let isOfflineMode: Bool
     let onBulkDownload: (DriveItem) -> Void
     let onDownloadSingle: (DriveItem) -> Void
     let onDownloadFrom: (DriveItem) -> Void
 
     func body(content: Content) -> some View {
-        if item.isFolder {
+        // オフライン中はダウンロード操作自体を提示しない
+        if isOfflineMode {
+            content
+        } else if item.isFolder {
             content.contextMenu {
                 Button {
                     onBulkDownload(item)
@@ -85,6 +90,7 @@ extension View {
     func driveItemContextMenu(
         for item: DriveItem,
         isDownloaded: Bool,
+        isOfflineMode: Bool,
         onBulkDownload: @escaping (DriveItem) -> Void,
         onDownloadSingle: @escaping (DriveItem) -> Void,
         onDownloadFrom: @escaping (DriveItem) -> Void
@@ -92,6 +98,7 @@ extension View {
         modifier(DriveItemContextMenuModifier(
             item: item,
             isDownloaded: isDownloaded,
+            isOfflineMode: isOfflineMode,
             onBulkDownload: onBulkDownload,
             onDownloadSingle: onDownloadSingle,
             onDownloadFrom: onDownloadFrom

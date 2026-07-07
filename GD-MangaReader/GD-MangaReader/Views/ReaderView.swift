@@ -45,7 +45,6 @@ struct ReaderView: View {
                     }
                 }
             }
-            .id(source.id) // sourceが変わったらViewとStateを強制再生成
             .onTapGesture(coordinateSpace: .local) { location in
                 handleTap(at: location, in: geometry.size)
             }
@@ -61,8 +60,10 @@ struct ReaderView: View {
             .onChange(of: viewModel.currentPage) { _, _ in
                 saveProgress()
                 viewModel.checkIfLastPageReached()
+                viewModel.prefetchImages()
             }
         }
+        .id(source.id) // sourceが変わったらViewとStateを強制再生成
         .ignoresSafeArea()
         .statusBarHidden(!viewModel.showUI)
         .focusable()
@@ -615,6 +616,9 @@ final class ReaderViewModel {
         self.isSpreadGapRemoved = UserDefaults.standard.object(forKey: "isSpreadGapRemoved") as? Bool ?? true
         self.autoDeleteAfterRead = UserDefaults.standard.bool(forKey: "autoDeleteAfterRead")
         
+        // 初期ページの見開き位置への調整
+        recalculateCurrentPage()
+        
         // ワイドページの事前スキャン
         scanWidePagesTask = Task {
             await scanWidePages()
@@ -624,6 +628,7 @@ final class ReaderViewModel {
         checkNextVolumeTask = Task {
             await checkForNextVolume()
             checkIfLastPageReached()
+            prefetchImages()
         }
     }
     
@@ -638,31 +643,61 @@ final class ReaderViewModel {
     }
     
     private func scanWidePages() async {
-        // 全ページを走査するように変更
         let maxScanPages = source.pageCount
+        let concurrencyLimit = 10 // 同時実行数を制限
         
         let widePages = await withTaskGroup(of: Int?.self) { group in
-            for i in 0..<maxScanPages {
+            var wideResults = Set<Int>()
+            var currentIndex = 0
+            
+            // 最初のバッチ
+            for _ in 0..<min(concurrencyLimit, maxScanPages) {
+                let idx = currentIndex
                 group.addTask {
                     if Task.isCancelled { return nil }
-                    let isWide = await self.source.isWidePage(at: i)
-                    return isWide ? i : nil
+                    let isWide = await self.source.isWidePage(at: idx)
+                    return isWide ? idx : nil
                 }
+                currentIndex += 1
             }
             
-            var results = Set<Int>()
+            // 残りのバッチ（一つ終わるごとに次を追加）
             for await result in group {
                 if let idx = result {
-                    results.insert(idx)
+                    wideResults.insert(idx)
+                }
+                
+                if currentIndex < maxScanPages && !Task.isCancelled {
+                    let nextIdx = currentIndex
+                    group.addTask {
+                        let isWide = await self.source.isWidePage(at: nextIdx)
+                        return isWide ? nextIdx : nil
+                    }
+                    currentIndex += 1
                 }
             }
-            return results
+            return wideResults
         }
         
         if Task.isCancelled { return }
         
         await MainActor.run {
             self.widePageIndices = widePages
+        }
+    }
+    
+    /// 周辺ページの画像を先読みする
+    func prefetchImages() {
+        let prefetchRange = 5 // 前後5ページ
+        let start = max(0, currentPage - prefetchRange)
+        let end = min(pageCount - 1, currentPage + prefetchRange)
+        
+        Task {
+            for i in start...end {
+                if Task.isCancelled { break }
+                // すでにロード済みの場合はComicSource側でキャッシュが返るはず
+                _ = try? await source.image(at: i)
+            }
         }
     }
     
@@ -757,24 +792,35 @@ final class ReaderViewModel {
             var indices: [Int] = []
             var current = 0
             
-            // 最初のページ（表紙）の扱い
+            // isSpreadShifted: 
+            // false = 表紙(0ページ目)を単独にしてからペアリング開始 (標準)
+            // true = 最初からペアリング開始
+            
             if !isSpreadShifted {
                 indices.append(0)
                 current = 1
+            } else if widePageIndices.contains(0) {
+                // Shiftモードかつ0ページ目がワイドの場合、通常のロジックだと
+                // 結局「0単独、1-2ペア」になり unshifted と同じになってしまう。
+                // これを避けるため、1ページ目も単独にして2ページ目からペアリングを開始する。
+                indices.append(0)
+                if pageCount > 1 {
+                    indices.append(1)
+                    current = 2
+                } else {
+                    current = 1
+                }
             }
             
             while current < pageCount {
                 indices.append(current)
                 
-                // 現在のページがワイドページなら、次のページとペアにせず単独表示
                 if widePageIndices.contains(current) {
                     current += 1
                 } else {
-                    // 次のページがワイドページなら、現在のページは単独表示
                     if current + 1 < pageCount && widePageIndices.contains(current + 1) {
                         current += 1
                     } else {
-                        // どちらもワイドでなければペアにする
                         current += 2
                     }
                 }
@@ -845,26 +891,26 @@ final class ReaderViewModel {
     func getSpreadIndices(for baseIndex: Int) -> (Int?, Int?) {
         // ワイドページなら単独表示
         if widePageIndices.contains(baseIndex) {
-            return (nil, baseIndex) // または中央に配置するため (nil, baseIndex) を返し View側で判定
+            return (nil, baseIndex)
         }
         
+        // 特殊な単独ページ判定
         if !isSpreadShifted && baseIndex == 0 {
-            var left: Int?
-            var right: Int?
-            if isRightToLeft {
-                left = nil
-                right = 0
-            } else {
-                left = 0
-                right = nil
-            }
+            var left: Int? = nil, right: Int? = 0
+            if !isRightToLeft { swap(&left, &right) }
+            if isSpreadSwapped { swap(&left, &right) }
+            return (left, right)
+        }
+        
+        if isSpreadShifted && widePageIndices.contains(0) && baseIndex == 1 {
+            // 0がワイドでShiftedの場合、1も単独表示
+            var left: Int? = nil, right: Int? = 1
+            if !isRightToLeft { swap(&left, &right) }
             if isSpreadSwapped { swap(&left, &right) }
             return (left, right)
         }
         
         let targetIndex = baseIndex
-        
-        // 次のページがワイドページなら、現在のターゲットは単独表示
         let nextIndex: Int?
         if let candidate = targetIndex + 1 < pageCount ? targetIndex + 1 : nil,
            !widePageIndices.contains(candidate) {
@@ -873,9 +919,7 @@ final class ReaderViewModel {
             nextIndex = nil
         }
         
-        var left: Int?
-        var right: Int?
-        
+        var left: Int?, right: Int?
         if isRightToLeft {
             left = nextIndex
             right = targetIndex
@@ -885,7 +929,6 @@ final class ReaderViewModel {
         }
         
         if isSpreadSwapped { swap(&left, &right) }
-        
         return (left, right)
     }
 }

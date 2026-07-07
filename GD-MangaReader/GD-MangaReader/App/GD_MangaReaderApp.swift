@@ -35,7 +35,7 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if authViewModel.isSignedIn {
+            if authViewModel.isOfflineMode || authViewModel.isSignedIn {
                 LibraryView()
             } else {
                 LoginView()

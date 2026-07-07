@@ -30,22 +30,40 @@ protocol ComicSource {
 // MARK: - Image Utilities
 
 extension UIImage {
-    /// 指定されたサイズに画像をダウンサンプリングする
-    func downsampled(to targetSize: CGSize) -> UIImage {
-        let scale = min(targetSize.width / self.size.width, targetSize.height / self.size.height)
-        if scale >= 1.0 { return self }
-        
-        let newSize = CGSize(
-            width: self.size.width * scale,
-            height: self.size.height * scale
-        )
-        
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-        return renderer.image { _ in
-            self.draw(in: CGRect(origin: .zero, size: newSize))
+    /// 指定されたデータから効率的にダウンサンプリングされたUIImageを作成する
+    static func downsampledImage(from data: Data, to targetSize: CGSize) -> UIImage? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, imageSourceOptions) else {
+            return nil
         }
+        
+        return createThumbnail(from: imageSource, targetSize: targetSize)
+    }
+    
+    /// 指定されたURLから効率的にダウンサンプリングされたUIImageを作成する
+    static func downsampledImage(from url: URL, to targetSize: CGSize) -> UIImage? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, imageSourceOptions) else {
+            return nil
+        }
+        
+        return createThumbnail(from: imageSource, targetSize: targetSize)
+    }
+    
+    private static func createThumbnail(from imageSource: CGImageSource, targetSize: CGSize) -> UIImage? {
+        let maxDimension = max(targetSize.width, targetSize.height)
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimension
+        ] as CFDictionary
+        
+        guard let downsampledImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions) else {
+            return nil
+        }
+        
+        return UIImage(cgImage: downsampledImage)
     }
 }
 
@@ -75,11 +93,7 @@ struct LocalComicSource: ComicSource {
         let targetSize = self.maxDisplaySize
         
         return await Task.detached(priority: .userInitiated) {
-            guard let data = try? Data(contentsOf: url),
-                  let uiImage = UIImage(data: data) else {
-                return nil
-            }
-            return uiImage.downsampled(to: targetSize)
+            return UIImage.downsampledImage(from: url, to: targetSize)
         }.value
     }
     
@@ -154,17 +168,27 @@ final class RemoteComicSource: ComicSource {
             return nil
         }
         
-        guard let uiImage = UIImage(data: data) else { return nil }
         let targetSize = self.maxDisplaySize
         
-        // ダウンサンプリング
+        // ダウンサンプリング (Dataから直接生成)
         let processedImage = await Task.detached(priority: .userInitiated) {
-            return uiImage.downsampled(to: targetSize)
+            return UIImage.downsampledImage(from: data, to: targetSize)
         }.value
         
+        // キャッシュ管理：現在のページから±10ページ以上離れているものを削除
         if imageCache.count > 20 {
-            imageCache.removeAll()
+            let keysToRemove = imageCache.keys.filter { abs($0 - index) > 10 }
+            for key in keysToRemove {
+                imageCache.removeValue(forKey: key)
+            }
+            // まだ多い場合は一番離れているものから消す（簡易LRU）
+            if imageCache.count > 30 {
+                if let farthestKey = imageCache.keys.max(by: { abs($0 - index) < abs($1 - index) }) {
+                    imageCache.removeValue(forKey: farthestKey)
+                }
+            }
         }
+        
         imageCache[index] = processedImage
         
         return processedImage
@@ -182,8 +206,17 @@ final class RemoteComicSource: ComicSource {
             return cached
         }
         
+        let file = files[index]
+        
+        // 1. まずDriveItemに寸法が含まれているかチェック
+        if let w = file.width, let h = file.height {
+            let isWide = CGFloat(w) > CGFloat(h) * 1.2
+            widePageCache[index] = isWide
+            return isWide
+        }
+        
+        // 2. 寸法がなければ（フォールバック）ダウンロードして判定
         do {
-            let file = files[index]
             let data = try await driveService.downloadFileData(fileId: file.id)
             
             let isWide = await Task.detached(priority: .userInitiated) {

@@ -20,9 +20,10 @@ struct LibraryView: View {
     @State private var showingDownloadQueue = false
     @State private var localRefreshTrigger = 0
     @State private var toast: ToastData?
+    @State private var loadTask: Task<Void, Never>?
 
     private var downloadQueue: DownloadQueueManager { .shared }
-    
+
     struct ComicSession: Identifiable, Equatable {
         var id: String { source.id }
         let source: any ComicSource
@@ -70,6 +71,7 @@ struct LibraryView: View {
             await libraryViewModel.refresh()
         }
         .task {
+            libraryViewModel.isOfflineMode = authViewModel.isOfflineMode
             libraryViewModel.configure(with: authViewModel.authorizer)
             downloadQueue.configure(
                 driveService: libraryViewModel.driveService,
@@ -96,6 +98,13 @@ struct LibraryView: View {
                 }
             }
             await libraryViewModel.loadFiles()
+        }
+        .onChange(of: authViewModel.isOfflineMode) { _, newValue in
+            loadTask?.cancel()
+            libraryViewModel.isOfflineMode = newValue
+            loadTask = Task {
+                await libraryViewModel.loadFiles()
+            }
         }
         .onChange(of: selectedItem) { _, newValue in
             if newValue == nil {
@@ -124,14 +133,18 @@ struct LibraryView: View {
     
     @ViewBuilder
     private var contentLayer: some View {
-        if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
-            shimmerLoadingView
-        } else if let error = libraryViewModel.errorMessage {
-            errorView(message: error)
-        } else if libraryViewModel.items.isEmpty {
-            emptyView
-        } else {
-            fileListContent
+        VStack(spacing: 0) {
+            offlineHeaderView
+            
+            if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
+                shimmerLoadingView
+            } else if let error = libraryViewModel.errorMessage {
+                errorView(message: error)
+            } else if libraryViewModel.items.isEmpty {
+                emptyView
+            } else {
+                fileListContent
+            }
         }
     }
     
@@ -245,6 +258,60 @@ struct LibraryView: View {
                     Task { await libraryViewModel.loadMoreFiles() }
                 }
             }
+    }
+    
+    /// オフライン制御ヘッダー（インジケータとトグルスイッチ）
+    private var offlineHeaderView: some View {
+        VStack(spacing: 0) {
+            if authViewModel.isOfflineMode {
+                HStack(spacing: 8) {
+                    Image(systemName: "wifi.slash")
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                    Text("オフラインモード")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text("ダウンロード済みのみ表示")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .background(Color.orange)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            
+            HStack {
+                Label {
+                    Text("オフラインモード")
+                        .font(.body)
+                        .fontWeight(.medium)
+                } icon: {
+                    Image(systemName: authViewModel.isOfflineMode ? "wifi.slash" : "wifi")
+                        .foregroundColor(authViewModel.isOfflineMode ? .orange : .blue)
+                }
+                
+                Spacer()
+                
+                Toggle("", isOn: Binding(
+                    get: { authViewModel.isOfflineMode },
+                    set: { newValue in
+                        withAnimation {
+                            authViewModel.isOfflineMode = newValue
+                        }
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle(tint: .orange))
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .background(Color(.secondarySystemGroupedBackground))
+            
+            Divider()
+        }
     }
     
     /// スケルトンUI（Shimmer）
@@ -408,14 +475,27 @@ struct LibraryView: View {
     
     // MARK: - Actions
 
+    /// オフラインモード時にダウンロード操作をブロックし、案内トーストを表示
+    private func blockIfOffline() -> Bool {
+        guard authViewModel.isOfflineMode else { return false }
+        toast = ToastData(
+            title: "オフラインモード",
+            message: "オフライン中はダウンロードできません。",
+            type: .error
+        )
+        return true
+    }
+
     /// フォルダ長押し: シリーズ一括ダウンロードの確認
     private func handleBulkDownload(_ folder: DriveItem) {
+        guard !blockIfOffline() else { return }
         selectedFolderForBulk = folder
         showingBulkDownloadConfirmation = true
     }
 
     /// 巻の長押し: この巻のみダウンロード（即キュー追加）
     private func handleDownloadSingle(_ item: DriveItem) {
+        guard !blockIfOffline() else { return }
         if downloadQueue.enqueue(.file(item)) != nil {
             toast = ToastData(
                 title: "ダウンロード開始",
@@ -427,6 +507,7 @@ struct LibraryView: View {
 
     /// 巻の長押し: この巻以降をダウンロードの確認
     private func handleDownloadFrom(_ item: DriveItem) {
+        guard !blockIfOffline() else { return }
         selectedItemForCascade = item
         showingCascadeDownloadConfirmation = true
     }
@@ -442,11 +523,27 @@ struct LibraryView: View {
                 readingSession = ComicSession(source: LocalComicSource(comic: existingComic))
             } else {
                 // 未ダウンロード → ダウンロードシートを表示
-                selectedItem = item
+                if authViewModel.isOfflineMode {
+                    toast = ToastData(
+                        title: "オフラインモード",
+                        message: "この漫画はオフラインでは閲覧できません。",
+                        type: .error
+                    )
+                } else {
+                    selectedItem = item
+                }
             }
         } else if item.isImage {
             // 画像ファイルはストリーミング閲覧開始
-            startStreamingRead(from: item)
+            if authViewModel.isOfflineMode {
+                toast = ToastData(
+                    title: "オフラインモード",
+                    message: "この漫画はオフラインでは閲覧できません。",
+                    type: .error
+                )
+            } else {
+                startStreamingRead(from: item)
+            }
         }
     }
     
@@ -744,7 +841,10 @@ struct AlertsAndSheetsModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
-                if let nextComic = notification.object as? LocalComic {
+                if var nextComic = notification.object as? LocalComic {
+                    // 次の巻は1ページ目から表示する
+                    nextComic.lastReadPage = 0
+
                     // 現在のセッションを一度閉じてから新しいセッションを開く
                     readingSession = nil
                     
@@ -760,38 +860,56 @@ struct AlertsAndSheetsModifier: ViewModifier {
                     readingSession = nil
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        // 次の巻が画像（ストリーミング）の場合
-                        if nextItem.isFolder || nextItem.isImage {
-                            // 現在のフォルダ内の画像一覧を取得し直す必要があるが、
-                            // DriveItem自体がそのフォルダの情報をある程度持っているか、
-                            // あるいは再スキャンが必要。ここでは簡易的にDriveItemから
-                            // 推測または再構築するロジックを呼ぶ
-                            
-                            // 既存のLibraryViewModelのアイテムから次巻のフォルダ情報を探す
-                            // (ここでは startStreamingRead と同様のロジックが必要)
-                            
-                            // とりあえず既存の startStreamingRead を流用できるように
-                            // libraryViewModelのアイテムを更新するか、直接RemoteComicSourceを構成
-                            
-                            // 実際にはLibraryViewModelの状態に依存せず、
-                            // nextItemから新しいRemoteComicSourceを直接構築するのが安全
-                            let source = RemoteComicSource(
-                                folderId: nextItem.id,
-                                title: nextItem.name,
-                                files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
-                                driveService: libraryViewModel.driveService,
-                                parentId: libraryViewModel.currentFolderId
-                            )
-                            readingSession = LibraryView.ComicSession(source: source)
-                        } else if nextItem.isArchive {
-                            // アーカイブの場合はダウンロード済みかチェック
-                            if let existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                        if authViewModel.isOfflineMode {
+                            // オフラインモード時の制御
+                            if nextItem.isArchive,
+                               var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
                                existingComic.status == .completed {
+                                // 次の巻は1ページ目から表示する
+                                existingComic.lastReadPage = 0
                                 readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
                             } else {
-                                // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
-                                // リーダーからの自動遷移なので、一旦選択状態にする
-                                selectedItem = nextItem
+                                // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
+                                toast = ToastData(
+                                    title: "オフラインモード",
+                                    message: "この漫画はオフラインでは閲覧できません。",
+                                    type: .error
+                                )
+                            }
+                        } else {
+                            // オンライン時の制御
+                            // 次の巻が画像（ストリーミング）の場合
+                            if nextItem.isFolder {
+                                let source = RemoteComicSource(
+                                    folderId: nextItem.id,
+                                    title: nextItem.name,
+                                    files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
+                                    driveService: libraryViewModel.driveService,
+                                    parentId: libraryViewModel.currentFolderId
+                                )
+                                readingSession = LibraryView.ComicSession(source: source)
+                            } else if nextItem.isImage {
+                                let folderId = nextItem.parentId ?? libraryViewModel.currentFolderId ?? ""
+                                let source = RemoteComicSource(
+                                    folderId: folderId,
+                                    title: nextItem.name,
+                                    files: [nextItem],
+                                    driveService: libraryViewModel.driveService,
+                                    parentId: libraryViewModel.currentFolderId
+                                )
+                                readingSession = LibraryView.ComicSession(source: source)
+                            } else if nextItem.isArchive {
+                                // アーカイブの場合はダウンロード済みかチェック
+                                if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+                                   existingComic.status == .completed {
+                                    // 次の巻は1ページ目から表示する
+                                    existingComic.lastReadPage = 0
+                                    readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
+                                } else {
+                                    // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
+                                    // リーダーからの自動遷移ので、一旦選択状態にする
+                                    selectedItem = nextItem
+                                }
                             }
                         }
                     }
@@ -898,4 +1016,3 @@ struct AlertsAndSheetsModifier: ViewModifier {
             }
     }
 }
-
