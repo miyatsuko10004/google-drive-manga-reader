@@ -835,6 +835,127 @@ struct AlertsAndSheetsModifier: ViewModifier {
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
 
+    /// リーダーからの「次のDriveアイテムを開く」通知を処理する
+    private func handleOpenNextDriveItem(_ nextItem: DriveItem) {
+        // 現在のセッションを閉じる
+        readingSession = nil
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if authViewModel.isOfflineMode {
+                openNextDriveItemOffline(nextItem)
+            } else {
+                openNextDriveItemOnline(nextItem)
+            }
+        }
+    }
+
+    /// オフラインモード時: ダウンロード済みアーカイブのみ開ける
+    private func openNextDriveItemOffline(_ nextItem: DriveItem) {
+        if nextItem.isArchive,
+           var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+           existingComic.status == .completed {
+            // 次の巻は1ページ目から表示する
+            existingComic.lastReadPage = 0
+            readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
+        } else {
+            // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
+            toast = ToastData(
+                title: "オフラインモード",
+                message: "この漫画はオフラインでは閲覧できません。",
+                type: .error
+            )
+        }
+    }
+
+    /// オンライン時: アイテムの種類に応じてソースを構築する
+    private func openNextDriveItemOnline(_ nextItem: DriveItem) {
+        if nextItem.isFolder {
+            openNextFolder(nextItem)
+        } else if nextItem.isImage {
+            openNextImage(nextItem)
+        } else if nextItem.isArchive {
+            openNextArchive(nextItem)
+        }
+    }
+
+    /// 次の巻がフォルダ（画像ストリーミング）の場合
+    private func openNextFolder(_ nextItem: DriveItem) {
+        // フォルダ内の画像一覧を取得してからソースを構築する
+        // （空のfilesを渡すとpageCount=0のまま固定されてしまうため）
+        Task { @MainActor in
+            var allItems: [DriveItem] = []
+            var token: String?
+            do {
+                repeat {
+                    let result = try await libraryViewModel.driveService.listFiles(
+                        in: nextItem.id,
+                        pageToken: token
+                    )
+                    allItems.append(contentsOf: result.items)
+                    token = result.nextPageToken
+                } while token != nil
+            } catch {
+                toast = ToastData(
+                    title: "読み込み失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                )
+                return
+            }
+
+            let images = allItems.filter { $0.isImage }
+            guard !images.isEmpty else {
+                toast = ToastData(
+                    title: "ダウンロード",
+                    message: "この巻には画像が含まれていません",
+                    type: .error
+                )
+                return
+            }
+
+            // 取得中にユーザーが別のセッションを開始していた場合は、それを上書きしない
+            guard readingSession == nil else { return }
+
+            let source = RemoteComicSource(
+                folderId: nextItem.id,
+                title: nextItem.name,
+                files: images,
+                driveService: libraryViewModel.driveService,
+                parentId: libraryViewModel.currentFolderId
+            )
+            readingSession = LibraryView.ComicSession(source: source)
+        }
+    }
+
+    /// 次の巻が単独画像の場合
+    private func openNextImage(_ nextItem: DriveItem) {
+        // idは画像自身のものを使う（親フォルダIDを使うと、同じフォルダ内の
+        // 別画像へ連続ジャンプした際にidが変化せず、状態リセットも次巻検出も機能しなくなる）
+        let source = RemoteComicSource(
+            folderId: nextItem.id,
+            title: nextItem.name,
+            files: [nextItem],
+            driveService: libraryViewModel.driveService,
+            parentId: libraryViewModel.currentFolderId
+        )
+        readingSession = LibraryView.ComicSession(source: source)
+    }
+
+    /// 次の巻がアーカイブの場合
+    private func openNextArchive(_ nextItem: DriveItem) {
+        // アーカイブの場合はダウンロード済みかチェック
+        if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
+           existingComic.status == .completed {
+            // 次の巻は1ページ目から表示する
+            existingComic.lastReadPage = 0
+            readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
+        } else {
+            // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
+            // リーダーからの自動遷移なので、一旦選択状態にする
+            selectedItem = nextItem
+        }
+    }
+
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
@@ -853,63 +974,7 @@ struct AlertsAndSheetsModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextDriveItem"))) { notification in
                 if let nextItem = notification.object as? DriveItem {
-                    // 現在のセッションを閉じる
-                    readingSession = nil
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        if authViewModel.isOfflineMode {
-                            // オフラインモード時の制御
-                            if nextItem.isArchive,
-                               var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
-                               existingComic.status == .completed {
-                                // 次の巻は1ページ目から表示する
-                                existingComic.lastReadPage = 0
-                                readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
-                            } else {
-                                // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
-                                toast = ToastData(
-                                    title: "オフラインモード",
-                                    message: "この漫画はオフラインでは閲覧できません。",
-                                    type: .error
-                                )
-                            }
-                        } else {
-                            // オンライン時の制御
-                            // 次の巻が画像（ストリーミング）の場合
-                            if nextItem.isFolder {
-                                let source = RemoteComicSource(
-                                    folderId: nextItem.id,
-                                    title: nextItem.name,
-                                    files: [], // 読み込み時にフェッチされるように RemoteComicSource側で対応が必要
-                                    driveService: libraryViewModel.driveService,
-                                    parentId: libraryViewModel.currentFolderId
-                                )
-                                readingSession = LibraryView.ComicSession(source: source)
-                            } else if nextItem.isImage {
-                                let folderId = nextItem.parentId ?? libraryViewModel.currentFolderId ?? ""
-                                let source = RemoteComicSource(
-                                    folderId: folderId,
-                                    title: nextItem.name,
-                                    files: [nextItem],
-                                    driveService: libraryViewModel.driveService,
-                                    parentId: libraryViewModel.currentFolderId
-                                )
-                                readingSession = LibraryView.ComicSession(source: source)
-                            } else if nextItem.isArchive {
-                                // アーカイブの場合はダウンロード済みかチェック
-                                if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
-                                   existingComic.status == .completed {
-                                    // 次の巻は1ページ目から表示する
-                                    existingComic.lastReadPage = 0
-                                    readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
-                                } else {
-                                    // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
-                                    // リーダーからの自動遷移ので、一旦選択状態にする
-                                    selectedItem = nextItem
-                                }
-                            }
-                        }
-                    }
+                    handleOpenNextDriveItem(nextItem)
                 }
             }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
@@ -1029,7 +1094,12 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 )
             }
             .fullScreenCover(item: $readingSession) { session in
+                // sessionのidが変わるたびにReaderViewとその@State（ReaderViewModel）を
+                // 強制的に作り直す。これがないと、次の巻への遷移がSwiftUI側で
+                // 「新規表示」ではなく「同一シートの内容差し替え」として扱われた場合に
+                // 古いReaderViewModel（＝古いページ数）が使い回されてしまう
                 ReaderView(source: session.source)
+                    .id(session.id)
             }
     }
 }
