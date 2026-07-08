@@ -81,6 +81,10 @@ final class SeriesThumbnailStore: @unchecked Sendable {
 
         guard let jpegData else { return nil }
 
+        return saveThumbnail(jpegData: jpegData, folderId: folderId)
+    }
+
+    private func saveThumbnail(jpegData: Data, folderId: String) -> URL? {
         lock.lock()
         defer { lock.unlock() }
 
