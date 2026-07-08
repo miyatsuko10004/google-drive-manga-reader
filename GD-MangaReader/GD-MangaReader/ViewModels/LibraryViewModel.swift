@@ -208,14 +208,32 @@ final class LibraryViewModel {
         var recommendations: [LocalComic] = []
         var seenSeries = Set<String>()
         
-        for comic in recentlyRead {
-            let seriesTitle = extractSeriesTitle(from: comic.title)
-            guard !seriesTitle.isEmpty && !seenSeries.contains(seriesTitle) else { continue }
+        // recentlyRead の各コミックに対するシリーズ名をキャッシュ
+        let recentlyReadWithTitles = recentlyRead.compactMap { comic -> (LocalComic, String)? in
+            let title = extractSeriesTitle(from: comic.title)
+            return title.isEmpty ? nil : (comic, title)
+        }
+
+        // 対象となるシリーズ名を抽出
+        let targetSeriesTitles = Set(recentlyReadWithTitles.map { $0.1 })
+
+        // 対象シリーズのみに絞ってグルーピング
+        var seriesGroups: [String: [LocalComic]] = [:]
+        if !targetSeriesTitles.isEmpty {
+            for comic in allComics {
+                let title = extractSeriesTitle(from: comic.title)
+                if targetSeriesTitles.contains(title) {
+                    seriesGroups[title, default: []].append(comic)
+                }
+            }
+        }
+
+        for (comic, seriesTitle) in recentlyReadWithTitles {
+            guard !seenSeries.contains(seriesTitle) else { continue }
             seenSeries.insert(seriesTitle)
             
             // このシリーズの全巻を取得してソート
-            let seriesVolumes = allComics
-                .filter { extractSeriesTitle(from: $0.title) == seriesTitle }
+            let seriesVolumes = (seriesGroups[seriesTitle] ?? [])
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             
             // 現在の巻のインデックスを探す
