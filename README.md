@@ -11,6 +11,9 @@
   <a href="https://github.com/manyo/google-drive-manga-reader/actions/workflows/ios.yml">
     <img src="https://github.com/manyo/google-drive-manga-reader/workflows/iOS%20Build/badge.svg" alt="iOS Build Status" />
   </a>
+  <a href="https://coderabbit.ai">
+    <img src="https://img.shields.io/coderabbit/prs/github/miyatsuko10004/google-drive-manga-reader?utm_source=oss&utm_medium=github&utm_campaign=miyatsuko10004%2Fgoogle-drive-manga-reader&labelColor=171717&color=FF570A&label=CodeRabbit+Reviews" alt="CodeRabbit Reviews" />
+  </a>
 </p>
 
 ---
