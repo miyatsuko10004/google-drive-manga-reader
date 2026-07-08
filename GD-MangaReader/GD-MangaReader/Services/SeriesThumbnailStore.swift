@@ -141,7 +141,7 @@ final class SeriesThumbnailStore: @unchecked Sendable {
     /// kCGImagePropertyPixelWidth/Heightは回転適用前の値のため、EXIF orientationが
     /// 90度回転系（5〜8）の場合は幅と高さを入れ替えて表示上の寸法で判定する
     /// （切り出しは回転適用後の画像に対して行うため、判定もそれに合わせる必要がある）
-    private static func isWideImage(at url: URL) -> Bool {
+    static func isWideImage(at url: URL) -> Bool {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
