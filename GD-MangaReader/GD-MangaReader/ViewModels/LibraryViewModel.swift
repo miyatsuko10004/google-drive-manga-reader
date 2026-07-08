@@ -429,6 +429,20 @@ final class LibraryViewModel {
         await loadFiles()
     }
     
+    /// 中間フォルダに直接ジャンプする
+    func navigateToIntermediateFolder(_ folder: DriveItem) async {
+        guard !isOfflineMode else { return }
+        guard let index = folderPath.firstIndex(where: { $0.id == folder.id }) else { return }
+
+        // 指定されたフォルダ以降のパスを削除
+        folderPath = Array(folderPath.prefix(through: index))
+
+        currentFolderId = folder.id
+        items = []
+        updateFilteredItems()
+        await loadFiles()
+    }
+
     /// リフレッシュ
     func refresh() async {
         await loadFiles()
