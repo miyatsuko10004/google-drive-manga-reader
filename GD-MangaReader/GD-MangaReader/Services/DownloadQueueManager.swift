@@ -281,16 +281,43 @@ final class DownloadQueueManager {
 
         // 各シリーズの1巻（自然順で先頭のアーカイブ）を収集する
         // 個別シリーズの取得失敗・アーカイブ0件はスキップして続行する（部分成功を優先）
-        var firstVolumes: [DriveItem] = []
-        for folder in seriesFolders {
-            do {
-                if let first = try await driveService.fetchArchivesNaturalSorted(inFolder: folder.id).first {
-                    firstVolumes.append(first)
+        // Drive APIのレート制限を考慮し、同時実行数を制限した並行取得を行う
+        // （スライディングウィンドウ方式はReaderView.scanWidePagesと同じパターン）
+        let concurrencyLimit = 4
+        var firstVolumes: [DriveItem] = await withTaskGroup(of: DriveItem?.self) { group in
+            var iterator = seriesFolders.makeIterator()
+
+            func addLookupTask(for folder: DriveItem) {
+                group.addTask {
+                    do {
+                        return try await driveService.fetchArchivesNaturalSorted(inFolder: folder.id).first
+                    } catch {
+                        print("⚠️ [DownloadQueueManager] Trial volume lookup failed: \(folder.name) - \(error.localizedDescription)")
+                        return nil
+                    }
                 }
-            } catch {
-                print("⚠️ [DownloadQueueManager] Trial volume lookup failed: \(folder.name) - \(error.localizedDescription)")
             }
+
+            // 初期バッチを投入し、1件完了するごとに次を継続投入する
+            for _ in 0..<min(concurrencyLimit, seriesFolders.count) {
+                guard let folder = iterator.next() else { break }
+                addLookupTask(for: folder)
+            }
+
+            var results: [DriveItem] = []
+            for await result in group {
+                if let first = result {
+                    results.append(first)
+                }
+                if let folder = iterator.next() {
+                    addLookupTask(for: folder)
+                }
+            }
+            return results
         }
+
+        // 並行取得の完了順は不定のため、キューへの投入順が安定するよう名前順に揃える
+        firstVolumes.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
         // ダウンロード済み・キュー済みのスキップはenqueue(items:)側で行われる
         let added = enqueue(items: firstVolumes)
