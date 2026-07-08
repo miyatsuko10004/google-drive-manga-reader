@@ -158,7 +158,7 @@ final class SeriesThumbnailStore: @unchecked Sendable {
     }
 
     /// 見開き画像から左上を起点に1ページ分（左半分）を切り出す
-    private static func cropLeadingPage(of image: UIImage) -> UIImage? {
+    static func cropLeadingPage(of image: UIImage) -> UIImage? {
         guard let cgImage = image.cgImage else { return nil }
         let rect = CGRect(x: 0, y: 0, width: cgImage.width / 2, height: cgImage.height)
         guard let cropped = cgImage.cropping(to: rect) else { return nil }
