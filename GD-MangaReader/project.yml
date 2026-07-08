@@ -84,3 +84,10 @@ targets:
           - CFBundleURLSchemes:
               - com.googleusercontent.apps.dummy
         GIDClientID: $(GID_CLIENT_ID).apps.googleusercontent.com
+  GD-MangaReaderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - GD-MangaReaderTests
+    dependencies:
+      - target: GD-MangaReader
