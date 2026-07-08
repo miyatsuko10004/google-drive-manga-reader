@@ -628,61 +628,44 @@ struct DriveItemGridCell: View {
     var body: some View {
         VStack(spacing: 8) {
             // サムネイル / アイコン
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .aspectRatio(1, contentMode: .fit)
-
-                if let thumbnailURL = item.thumbnailURL {
-                    KFImage(thumbnailURL)
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else if let localThumbnailURL = localThumbnailURL {
-                    KFImage(localThumbnailURL)
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else if item.isFolder, let seriesThumbnailURL = seriesThumbnailURL {
-                    // シリーズ（1巻）の永続サムネイル
-                    KFImage(seriesThumbnailURL)
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else {
-                    Image(systemName: item.iconName)
-                        .font(.system(size: 40))
-                        .foregroundColor(iconColor)
+            // 正方形の背景をレイアウトの基準とし、画像はoverlayで重ねてクリップする
+            // （scaledToFillはframe制約なしだと横長画像でレイアウトがセル外へ広がり、
+            //   隣のセルに被ってしまうため）
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    thumbnailContent
                 }
-                
-                // 読了プログレスバー
-                if isDownloaded && readingProgress > 0 {
-                    VStack {
-                        Spacer()
-                        ProgressView(value: readingProgress)
-                            .progressViewStyle(.linear)
-                            .tint(.blue)
-                            .background(Color.white.opacity(0.8))
+                .overlay {
+                    // 読了プログレスバー
+                    if isDownloaded && readingProgress > 0 {
+                        VStack {
+                            Spacer()
+                            ProgressView(value: readingProgress)
+                                .progressViewStyle(.linear)
+                                .tint(.blue)
+                                .background(Color.white.opacity(0.8))
+                        }
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-            }
-            .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-            .overlay(alignment: .topTrailing) {
-                if isBulkDownloading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
-                        .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
-                        .offset(x: 4, y: -4)
-                } else if isDownloaded {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.green)
-                        .background(Circle().fill(.white).frame(width: 18, height: 18))
-                        .offset(x: 4, y: -4)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                .overlay(alignment: .topTrailing) {
+                    if isBulkDownloading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
+                            .offset(x: 4, y: -4)
+                    } else if isDownloaded {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.green)
+                            .background(Circle().fill(.white).frame(width: 18, height: 18))
+                            .offset(x: 4, y: -4)
+                    }
                 }
-            }
-            
+
             // ファイル名
             Text(item.name)
                 .font(.caption)
@@ -698,7 +681,31 @@ struct DriveItemGridCell: View {
         }
         .padding(8)
     }
-    
+
+    /// サムネイル画像（優先順: ファイル自身のDriveサムネ → ローカル1ページ目 → シリーズサムネ → アイコン）
+    /// はみ出しのクリップは呼び出し側（正方形背景のoverlay + clipShape）で行う
+    @ViewBuilder
+    private var thumbnailContent: some View {
+        if let thumbnailURL = item.thumbnailURL {
+            KFImage(thumbnailURL)
+                .resizable()
+                .scaledToFill()
+        } else if let localThumbnailURL = localThumbnailURL {
+            KFImage(localThumbnailURL)
+                .resizable()
+                .scaledToFill()
+        } else if item.isFolder, let seriesThumbnailURL = seriesThumbnailURL {
+            // シリーズ（1巻）の永続サムネイル
+            KFImage(seriesThumbnailURL)
+                .resizable()
+                .scaledToFill()
+        } else {
+            Image(systemName: item.iconName)
+                .font(.system(size: 40))
+                .foregroundColor(iconColor)
+        }
+    }
+
     private var iconColor: Color {
         if item.isFolder {
             return .blue
