@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var showingCascadeDownloadConfirmation = false
     @State private var selectedItemForCascade: DriveItem?
     @State private var showingDownloadQueue = false
+    @State private var showingTrialDownloadConfirmation = false
     @State private var localRefreshTrigger = 0
     @State private var toast: ToastData?
     @State private var loadTask: Task<Void, Never>?
@@ -129,6 +130,7 @@ struct LibraryView: View {
             selectedFolderForBulk: $selectedFolderForBulk,
             showingCascadeDownloadConfirmation: $showingCascadeDownloadConfirmation,
             selectedItemForCascade: $selectedItemForCascade,
+            showingTrialDownloadConfirmation: $showingTrialDownloadConfirmation,
             showingDownloadQueue: $showingDownloadQueue,
             readingSession: $readingSession,
             toast: $toast,
@@ -451,6 +453,15 @@ struct LibraryView: View {
                 
                 Divider()
 
+                // 試し読み（ルート表示時のみ）
+                if libraryViewModel.folderPath.isEmpty {
+                    Button {
+                        handleTrialDownload()
+                    } label: {
+                        Label("試し読み（全シリーズの1巻）", systemImage: "sparkles")
+                    }
+                }
+
                 // ダウンロード一覧
                 Button {
                     showingDownloadQueue = true
@@ -519,6 +530,20 @@ struct LibraryView: View {
         guard !blockIfOffline() else { return }
         selectedItemForCascade = item
         showingCascadeDownloadConfirmation = true
+    }
+
+    /// メニュー: 試し読み（全シリーズの1巻をダウンロード）の確認
+    private func handleTrialDownload() {
+        guard !blockIfOffline() else { return }
+        guard !downloadQueue.isTrialEnqueueInProgress else {
+            toast = ToastData(
+                title: "試し読みダウンロード",
+                message: "現在処理中です。しばらくお待ちください。",
+                type: .info
+            )
+            return
+        }
+        showingTrialDownloadConfirmation = true
     }
 
     private func handleItemTap(_ item: DriveItem) {
@@ -807,6 +832,7 @@ struct AlertsAndSheetsModifier: ViewModifier {
     @Binding var selectedFolderForBulk: DriveItem?
     @Binding var showingCascadeDownloadConfirmation: Bool
     @Binding var selectedItemForCascade: DriveItem?
+    @Binding var showingTrialDownloadConfirmation: Bool
     @Binding var showingDownloadQueue: Bool
     @Binding var readingSession: LibraryView.ComicSession?
     @Binding var toast: ToastData?
@@ -1061,6 +1087,50 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 if let item = selectedItemForCascade {
                     Text("「\(item.name)」以降のアーカイブをバックグラウンドでダウンロードします。")
                 }
+            }
+            .alert("試し読みダウンロード", isPresented: $showingTrialDownloadConfirmation) {
+                Button("キャンセル", role: .cancel) {}
+                Button("ダウンロード") {
+                    Task { @MainActor in
+                        do {
+                            let (added, seriesCount, candidateCount) =
+                                try await DownloadQueueManager.shared.enqueueTrialVolumes()
+                            if added > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード開始",
+                                    message: "\(seriesCount)シリーズ中\(added)件の1巻をキューに追加しました",
+                                    type: .info
+                                )
+                            } else if candidateCount > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード",
+                                    message: "追加できるファイルがありません（ダウンロード済み）",
+                                    type: .info
+                                )
+                            } else if seriesCount > 0 {
+                                toast = ToastData(
+                                    title: "ダウンロード",
+                                    message: "対象のアーカイブが見つかりませんでした",
+                                    type: .error
+                                )
+                            } else {
+                                toast = ToastData(
+                                    title: "ダウンロード",
+                                    message: "シリーズフォルダが見つかりませんでした",
+                                    type: .info
+                                )
+                            }
+                        } catch {
+                            toast = ToastData(
+                                title: "ダウンロード失敗",
+                                message: error.localizedDescription,
+                                type: .error
+                            )
+                        }
+                    }
+                }
+            } message: {
+                Text("全シリーズの1巻をバックグラウンドで一括ダウンロードします。シリーズ数が多い場合は時間がかかることがあります。")
             }
             .sheet(isPresented: $showingDownloadQueue) {
                 DownloadQueueView()

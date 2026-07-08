@@ -253,6 +253,77 @@ final class DownloadQueueManager {
         return try await driveService.fetchArchivesNaturalSorted(inFolder: folderId)
     }
 
+    /// 試し読みの一括登録が実行中かどうか（二重実行防止用、UIからの参照も可）
+    private(set) var isTrialEnqueueInProgress = false
+
+    /// 全シリーズ（ルート直下のフォルダ）の1巻をキューに追加（試し読み）
+    /// ルート直下に直接置かれたアーカイブはどのシリーズにも属さないため対象外
+    /// - Returns: (新規に追加した件数, 見つかったシリーズ数, 1巻が特定できたシリーズ数)
+    ///   candidateCountにより「全巻ダウンロード済み」と「アーカイブが1件も見つからなかった」を区別できる
+    func enqueueTrialVolumes() async throws -> (added: Int, seriesCount: Int, candidateCount: Int) {
+        guard !isTrialEnqueueInProgress else { return (0, 0, 0) }
+        isTrialEnqueueInProgress = true
+        defer { isTrialEnqueueInProgress = false }
+
+        guard let driveService else { return (0, 0, 0) }
+
+        // ルート("manga"フォルダ)直下を全件取得する
+        // 表示中のリストはページングで一部しか読み込まれていない場合があるため、必ず全件を取得する
+        var rootItems: [DriveItem] = []
+        var token: String?
+        repeat {
+            let result = try await driveService.listFiles(in: nil, pageToken: token)
+            rootItems.append(contentsOf: result.items)
+            token = result.nextPageToken
+        } while token != nil
+
+        let seriesFolders = rootItems.filter { $0.isFolder }
+
+        // 各シリーズの1巻（自然順で先頭のアーカイブ）を収集する
+        // 個別シリーズの取得失敗・アーカイブ0件はスキップして続行する（部分成功を優先）
+        // Drive APIのレート制限を考慮し、同時実行数を制限した並行取得を行う
+        // （スライディングウィンドウ方式はReaderView.scanWidePagesと同じパターン）
+        let concurrencyLimit = 4
+        var firstVolumes: [DriveItem] = await withTaskGroup(of: DriveItem?.self) { group in
+            var iterator = seriesFolders.makeIterator()
+
+            func addLookupTask(for folder: DriveItem) {
+                group.addTask {
+                    do {
+                        return try await driveService.fetchArchivesNaturalSorted(inFolder: folder.id).first
+                    } catch {
+                        print("⚠️ [DownloadQueueManager] Trial volume lookup failed: \(folder.name) - \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+            }
+
+            // 初期バッチを投入し、1件完了するごとに次を継続投入する
+            for _ in 0..<min(concurrencyLimit, seriesFolders.count) {
+                guard let folder = iterator.next() else { break }
+                addLookupTask(for: folder)
+            }
+
+            var results: [DriveItem] = []
+            for await result in group {
+                if let first = result {
+                    results.append(first)
+                }
+                if let folder = iterator.next() {
+                    addLookupTask(for: folder)
+                }
+            }
+            return results
+        }
+
+        // 並行取得の完了順は不定のため、キューへの投入順が安定するよう名前順に揃える
+        firstVolumes.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        // ダウンロード済み・キュー済みのスキップはenqueue(items:)側で行われる
+        let added = enqueue(items: firstVolumes)
+        return (added, seriesFolders.count, firstVolumes.count)
+    }
+
     // MARK: - Cancel / Clear
 
     /// タスクをキャンセル
