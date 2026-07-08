@@ -375,9 +375,10 @@ final class DownloadQueueManager {
     private func taskDidFinish(_ task: DownloadQueueTask) {
         onTaskFinished?(task)
 
-        if case .completed = task.state, let comic = task.comic {
-            Task { await maybeGenerateSeriesThumbnail(for: task, comic: comic) }
-        }
+        let thumbnailTask: Task<Void, Never>? = {
+            guard case .completed = task.state, let comic = task.comic else { return nil }
+            return Task { await maybeGenerateSeriesThumbnail(for: task, comic: comic) }
+        }()
 
         if pendingTasks.isEmpty {
             let completed = tasks.filter { $0.state == .completed }.count
@@ -385,8 +386,13 @@ final class DownloadQueueManager {
                 if case .failed = $0.state { return true }
                 return false
             }.count
-            endBackgroundTaskIfNeeded()
-            onQueueDrained?(completed, failed)
+            // サムネイル生成がバックグラウンド猶予時間の終了より先に完了するよう、
+            // 完了を待ってからバックグラウンドタスクを終了する
+            Task {
+                await thumbnailTask?.value
+                endBackgroundTaskIfNeeded()
+                onQueueDrained?(completed, failed)
+            }
         } else {
             processQueue()
         }

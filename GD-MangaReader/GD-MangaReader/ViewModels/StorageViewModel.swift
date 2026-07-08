@@ -103,6 +103,9 @@ final class StorageViewModel {
                 SeriesThumbnailStore.shared.removeAll()
             }.value
             await loadData()
+            // LibraryViewModelは別のビュー階層にあり直接参照できないため、
+            // 通知経由で前段キャッシュ（downloadedComics/seriesThumbnails）の無効化を伝える
+            NotificationCenter.default.post(name: Notification.Name("AllComicsDeleted"), object: nil)
         } catch {
             errorMessage = "全削除に失敗しました: \(error.localizedDescription)"
         }

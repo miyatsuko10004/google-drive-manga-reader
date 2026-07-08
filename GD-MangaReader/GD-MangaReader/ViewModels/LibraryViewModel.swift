@@ -329,8 +329,8 @@ final class LibraryViewModel {
             seriesThumbnails.set(firstVolume?.thumbnailURL, forKey: folder.id)
         } catch {
             print("Series Thumbnail Fetch Error: \(folder.name) - \(error.localizedDescription)")
-            // 失敗時はnilを入れて無限リトライを防止
-            seriesThumbnails.set(nil, forKey: folder.id)
+            // 一時的なネットワーク/API エラーの場合はキャッシュせず、次回の表示時に再試行させる
+            // （「1巻が存在しない/thumbnailURLがない」という確定結果のみnilでキャッシュする）
         }
     }
 
@@ -338,6 +338,12 @@ final class LibraryViewModel {
     /// 生成された際に、次回`resolveSeriesThumbnail`でそれを拾わせるため）
     func invalidateSeriesThumbnail(folderId: String) {
         seriesThumbnails.removeValue(forKey: folderId)
+    }
+
+    /// 全シリーズの前段キャッシュを無効化する（ストレージ全削除後、消したファイルのURLを
+    /// 表示に使い続けてしまわないようにするため）
+    func invalidateAllSeriesThumbnails() {
+        seriesThumbnails.removeAll()
     }
     
     /// 次のページを読み込み

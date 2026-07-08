@@ -951,6 +951,12 @@ struct AlertsAndSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AllComicsDeleted"))) { _ in
+                // ストレージ管理画面での全削除を反映する（downloadedComics/seriesThumbnailsの
+                // 前段キャッシュが削除済みファイルのURLを保持し続けないようにする）
+                libraryViewModel.refreshDownloadedComics()
+                libraryViewModel.invalidateAllSeriesThumbnails()
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
                 if var nextComic = notification.object as? LocalComic {
                     // 次の巻は1ページ目から表示する
