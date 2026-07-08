@@ -135,42 +135,25 @@ final class DriveService {
         return (items, result.nextPageToken)
     }
     
-    /// サムネイル制作用にフォルダ内の候補ファイル（アーカイブ/画像）を少数取得する
-    func fetchThumbnailCandidates(forFolder folderId: String, limit: Int = 4) async throws -> [DriveItem] {
-        let query = GTLRDriveQuery_FilesList.query()
-        
-        query.q = "'\(folderId)' in parents and trashed=false and (\(allExtensionQuery))"
-        // サムネイルに特化した必要最小限のフィールドだけを要求し軽量化
-        query.fields = "files(id, name, mimeType, thumbnailLink, imageMediaMetadata)"
-        query.orderBy = "name"
-        query.pageSize = limit
-        
-        let result = try await executeFileListQuery(query)
-        
-        let items = (result.files ?? []).compactMap { file -> DriveItem? in
-            guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
-                return nil
-            }
-            
-            return DriveItem(
-                id: id,
-                name: name,
-                mimeType: mimeType,
-                size: nil,
-                thumbnailURL: file.thumbnailLink.flatMap { URL(string: $0) },
-                parentId: folderId,
-                createdTime: file.createdTime?.date,
-                modifiedTime: file.modifiedTime?.date,
-                width: file.imageMediaMetadata?.width?.intValue,
-                height: file.imageMediaMetadata?.height?.intValue
-            )
-        }
-        
-        return Array(items.prefix(limit))
+    /// フォルダ内のアーカイブを全件（ページングしながら）取得し、自然順（巻数を数値として比較）にソートして返す
+    /// Drive側の`orderBy=name`は単純な文字列比較のため「10巻」が「2巻」より前に来てしまうことがあり、
+    /// "1巻"を確実に特定する用途にはこちらを使う
+    func fetchArchivesNaturalSorted(inFolder folderId: String) async throws -> [DriveItem] {
+        var allItems: [DriveItem] = []
+        var token: String?
+        repeat {
+            let result = try await listFiles(in: folderId, pageToken: token)
+            allItems.append(contentsOf: result.items)
+            token = result.nextPageToken
+        } while token != nil
+
+        return allItems
+            .filter { $0.isArchive }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
-    
+
     // MARK: - Private Helpers
-    
+
     private var allExtensionQuery: String {
         let archiveConditions = Config.SupportedFormats.archiveExtensions
             .map { "name contains '.\($0)'" }

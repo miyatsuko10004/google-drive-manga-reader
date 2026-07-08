@@ -125,6 +125,11 @@ final class DownloadQueueManager {
     /// キューが空になったときのコールバック（完了件数, 失敗件数）
     var onQueueDrained: ((_ completed: Int, _ failed: Int) -> Void)?
 
+    /// シリーズサムネイルが（ディスクへの書き込みまで完了して）更新されたときのコールバック
+    /// `onTaskFinished`はタスク完了と同時に同期的に発火するため、それより後に非同期で
+    /// 完了するサムネイル生成の通知には使えない。ここで生成完了を正確なタイミングで通知する
+    var onSeriesThumbnailUpdated: ((_ folderId: String) -> Void)?
+
     // MARK: - Computed Properties
 
     /// 未終了（待機中・実行中）のタスク
@@ -245,18 +250,7 @@ final class DownloadQueueManager {
     /// フォルダ内の全アーカイブをページングしながら取得し、名前順にソートして返す
     private func fetchAllArchives(inFolder folderId: String) async throws -> [DriveItem] {
         guard let driveService else { return [] }
-
-        var allItems: [DriveItem] = []
-        var token: String?
-        repeat {
-            let result = try await driveService.listFiles(in: folderId, pageToken: token)
-            allItems.append(contentsOf: result.items)
-            token = result.nextPageToken
-        } while token != nil
-
-        return allItems
-            .filter { $0.isArchive }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return try await driveService.fetchArchivesNaturalSorted(inFolder: folderId)
     }
 
     // MARK: - Cancel / Clear
@@ -381,16 +375,41 @@ final class DownloadQueueManager {
     private func taskDidFinish(_ task: DownloadQueueTask) {
         onTaskFinished?(task)
 
+        let thumbnailTask: Task<Void, Never>? = {
+            guard case .completed = task.state, let comic = task.comic else { return nil }
+            return Task { await maybeGenerateSeriesThumbnail(for: task, comic: comic) }
+        }()
+
         if pendingTasks.isEmpty {
             let completed = tasks.filter { $0.state == .completed }.count
             let failed = tasks.filter {
                 if case .failed = $0.state { return true }
                 return false
             }.count
-            endBackgroundTaskIfNeeded()
-            onQueueDrained?(completed, failed)
+            // サムネイル生成がバックグラウンド猶予時間の終了より先に完了するよう、
+            // 完了を待ってからバックグラウンドタスクを終了する
+            Task {
+                await thumbnailTask?.value
+                endBackgroundTaskIfNeeded()
+                onQueueDrained?(completed, failed)
+            }
         } else {
             processQueue()
+        }
+    }
+
+    /// ダウンロード完了したファイルがシリーズの1巻であれば、永続サムネイルを生成する
+    /// 既にキャッシュがある場合は何もしない（1巻が入れ替わるケースは非対応、全データ削除で再生成される）
+    private func maybeGenerateSeriesThumbnail(for task: DownloadQueueTask, comic: LocalComic) async {
+        guard case .file(let item) = task.target, let folderId = item.parentId else { return }
+        guard let firstImage = comic.imagePaths.first else { return }
+        guard SeriesThumbnailStore.shared.cachedThumbnailURL(forFolderId: folderId) == nil else { return }
+
+        guard let siblings = try? await driveService?.fetchArchivesNaturalSorted(inFolder: folderId),
+              siblings.first?.id == item.id else { return }
+
+        if await SeriesThumbnailStore.shared.generateThumbnail(forFolderId: folderId, imageURL: firstImage) != nil {
+            onSeriesThumbnailUpdated?(folderId)
         }
     }
 
