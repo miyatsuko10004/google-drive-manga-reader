@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: 💡 コミュニティ・ディスカッション
     url: https://github.com/manyo/google-drive-manga-reader/discussions

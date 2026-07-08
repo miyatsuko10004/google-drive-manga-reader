@@ -93,7 +93,7 @@ GD-MangaReader/
    * *(例: `000000000000-dummyid.apps.googleusercontent.com`)*
 
 ### 2. `Secrets.xcconfig` の作成
-プロジェクト内に `GD-MangaReader/Secrets.xcconfig` ファイルを作成し、以下のフォーマットで記述します。
+`GD-MangaReader` ディレクトリの直下（`project.yml` と同じ階層）に `Secrets.xcconfig` ファイルを作成し、以下のフォーマットで記述します。
 *(このファイルは `.gitignore` に含まれており、コミットされません)*
 
 ```text
