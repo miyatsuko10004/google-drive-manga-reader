@@ -86,3 +86,4 @@ GoogleService-Info.plist
 *.orig
 
 Secrets.xcconfig
+.serena/
