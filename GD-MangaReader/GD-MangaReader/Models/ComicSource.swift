@@ -177,15 +177,26 @@ final class RemoteComicSource: ComicSource {
         
         // キャッシュ管理：現在のページから±10ページ以上離れているものを削除
         if imageCache.count > 20 {
-            let keysToRemove = imageCache.keys.filter { abs($0 - index) > 10 }
+            var keysToRemove = [Int]()
+            var farthestKey: Int?
+            var maxDistance = -1
+
+            for key in imageCache.keys {
+                let distance = abs(key - index)
+                if distance > 10 {
+                    keysToRemove.append(key)
+                } else if distance > maxDistance {
+                    maxDistance = distance
+                    farthestKey = key
+                }
+            }
+
             for key in keysToRemove {
                 imageCache.removeValue(forKey: key)
             }
             // まだ多い場合は一番離れているものから消す（簡易LRU）
-            if imageCache.count > 30 {
-                if let farthestKey = imageCache.keys.max(by: { abs($0 - index) < abs($1 - index) }) {
-                    imageCache.removeValue(forKey: farthestKey)
-                }
+            if imageCache.count > 30, let farthest = farthestKey {
+                imageCache.removeValue(forKey: farthest)
             }
         }
         
