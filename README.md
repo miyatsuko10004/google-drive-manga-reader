@@ -1,5 +1,5 @@
 # GD-MangaReader
-
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/miyatsuko10004/google-drive-manga-reader?utm_source=oss&utm_medium=github&utm_campaign=miyatsuko10004%2Fgoogle-drive-manga-reader&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 Google Drive上のZIP/RAR/CBZ/CBR形式コミックや画像フォルダを、iOSデバイス（iPhone / iPad）にダウンロードして快適に読むためのマンガビューアーアプリです。
 
 ## 特徴 (Features)
