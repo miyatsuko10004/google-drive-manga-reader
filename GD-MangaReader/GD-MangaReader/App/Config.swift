@@ -3,6 +3,7 @@
 //
 // アプリケーション設定定数
 
+import CoreGraphics
 import Foundation
 
 /// アプリケーション設定
@@ -31,6 +32,12 @@ enum Config {
         
         /// 一時ファイル用ディレクトリ名
         static let tempDirectoryName = "Temp"
+
+        /// シリーズサムネイルキャッシュ用ディレクトリ名
+        static let seriesThumbnailsDirectoryName = "SeriesThumbnails"
+
+        /// シリーズサムネイルの生成先サイズ
+        static let seriesThumbnailTargetSize = CGSize(width: 400, height: 400)
     }
     
     /// サポートするファイル形式

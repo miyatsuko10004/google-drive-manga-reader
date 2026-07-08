@@ -82,6 +82,11 @@ struct LibraryView: View {
             downloadQueue.onTaskFinished = { _ in
                 libraryViewModel.refreshDownloadedComics()
             }
+            downloadQueue.onSeriesThumbnailUpdated = { folderId in
+                // 実際にディスクへのサムネイル生成が完了したタイミングで前段キャッシュを無効化し、
+                // 次回表示時に新しいファイルを拾わせる
+                libraryViewModel.invalidateSeriesThumbnail(folderId: folderId)
+            }
             downloadQueue.onQueueDrained = { completed, failed in
                 guard completed + failed > 0 else { return }
                 if failed == 0 {
@@ -589,12 +594,12 @@ struct DriveItemGridCell: View {
     let item: DriveItem
     let isBulkDownloading: Bool
     let localComic: LocalComic?
-    let folderThumbnails: [URL]?
-    
+    let seriesThumbnailURL: URL?
+
     private var isDownloaded: Bool { localComic != nil }
     private var localThumbnailURL: URL? { localComic?.imagePaths.first }
     private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
-    
+
     var body: some View {
         VStack(spacing: 8) {
             // サムネイル / アイコン
@@ -602,7 +607,7 @@ struct DriveItemGridCell: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(.secondarySystemGroupedBackground))
                     .aspectRatio(1, contentMode: .fit)
-                
+
                 if let thumbnailURL = item.thumbnailURL {
                     KFImage(thumbnailURL)
                         .resizable()
@@ -613,9 +618,11 @@ struct DriveItemGridCell: View {
                         .resizable()
                         .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
-                    // フォルダ用 サムネイルタイル
-                    FolderThumbnailView(urls: folderThumbnails)
+                } else if item.isFolder, let seriesThumbnailURL = seriesThumbnailURL {
+                    // シリーズ（1巻）の永続サムネイル
+                    KFImage(seriesThumbnailURL)
+                        .resizable()
+                        .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
                     Image(systemName: item.iconName)
@@ -686,12 +693,12 @@ struct DriveItemListRow: View {
     let item: DriveItem
     let isBulkDownloading: Bool
     let localComic: LocalComic?
-    let folderThumbnails: [URL]?
-    
+    let seriesThumbnailURL: URL?
+
     private var isDownloaded: Bool { localComic != nil }
     private var localThumbnailURL: URL? { localComic?.imagePaths.first }
     private var readingProgress: Double { localComic?.readingProgress ?? 0.0 }
-    
+
     var body: some View {
         HStack(spacing: 12) {
             // アイコン
@@ -699,16 +706,19 @@ struct DriveItemListRow: View {
                 Circle()
                     .fill(Color(.secondarySystemGroupedBackground))
                     .frame(width: 44, height: 44)
-                
+
                 if let localThumbnailURL = localThumbnailURL {
                     KFImage(localThumbnailURL)
                         .resizable()
                         .scaledToFill()
                         .frame(width: 44, height: 44)
                         .clipShape(Circle())
-                } else if item.isFolder, let folderThumbnails = folderThumbnails, !folderThumbnails.isEmpty {
-                    // フォルダ用 サムネイルタイル
-                    FolderThumbnailView(urls: folderThumbnails)
+                } else if item.isFolder, let seriesThumbnailURL = seriesThumbnailURL {
+                    // シリーズ（1巻）の永続サムネイル
+                    KFImage(seriesThumbnailURL)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
                         .clipShape(Circle())
                 } else {
                     Image(systemName: item.iconName)
@@ -786,37 +796,6 @@ struct DriveItemListRow: View {
 #Preview {
     LibraryView()
         .environment(AuthViewModel())
-}
-
-// MARK: - Folder Thumbnail View
-
-/// フォルダ内の画像サムネイルを格子状に表示するビュー
-struct FolderThumbnailView: View {
-    let urls: [URL]
-    
-    var body: some View {
-        GeometryReader { geometry in
-            let cols = 2
-            let spacing: CGFloat = 2
-            let totalSpacing = spacing * CGFloat(cols - 1)
-            let itemSize = (geometry.size.width - totalSpacing) / CGFloat(cols)
-            
-            LazyVGrid(columns: [
-                GridItem(.fixed(itemSize), spacing: spacing),
-                GridItem(.fixed(itemSize), spacing: spacing)
-            ], spacing: spacing) {
-                // 最大4つまで表示
-                ForEach(0..<min(urls.count, 4), id: \.self) { index in
-                    KFImage(urls[index])
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: itemSize, height: itemSize)
-                        .clipped()
-                }
-            }
-        }
-        .background(Color(.systemGray5))
-    }
 }
 
 // MARK: - View Modifiers

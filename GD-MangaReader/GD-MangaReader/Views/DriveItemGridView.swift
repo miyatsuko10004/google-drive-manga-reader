@@ -19,11 +19,11 @@ struct DriveItemGridView: View {
                         ? downloadQueue.hasPendingTasks(inFolder: item.id)
                         : downloadQueue.isInQueue(driveFileId: item.id),
                     localComic: libraryViewModel.downloadedComics[item.id],
-                    folderThumbnails: libraryViewModel.folderThumbnails[item.id]
+                    seriesThumbnailURL: libraryViewModel.seriesThumbnails[item.id] ?? nil
                 )
                     .task {
                         if item.isFolder {
-                            await libraryViewModel.fetchThumbnails(for: item)
+                            await libraryViewModel.resolveSeriesThumbnail(for: item)
                         }
                     }
                     .onTapGesture {

@@ -72,6 +72,7 @@ final class StorageViewModel {
                 
                 // サイズ順にソート
                 let sortedItems = items.sorted { $0.size > $1.size }
+                total += SeriesThumbnailStore.shared.calculateStorageUsage()
                 return (sortedItems, total)
             }.value
             
@@ -99,6 +100,7 @@ final class StorageViewModel {
         do {
             try await Task.detached {
                 try LocalStorageService.shared.clearAllComics()
+                SeriesThumbnailStore.shared.removeAll()
             }.value
             await loadData()
         } catch {

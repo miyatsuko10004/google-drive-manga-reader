@@ -33,6 +33,13 @@ struct LRUCache<Key: Hashable, Value> {
         dict.removeAll()
         order.removeAll()
     }
+
+    mutating func removeValue(forKey key: Key) {
+        if let index = order.firstIndex(of: key) {
+            order.remove(at: index)
+        }
+        dict.removeValue(forKey: key)
+    }
     
     // Viewバインディング用に非破壊な読み取りを提供（順序の更新は行わない）
     subscript(key: Key) -> Value? {
@@ -82,8 +89,10 @@ final class LibraryViewModel {
     /// 次に読むべきおすすめ（最近読んだ作品の次巻など）
     private(set) var nextRecommendedComics: [LocalComic] = []
     
-    /// フォルダのサムネイルURLキャッシュ (LRU管理, 上限500件)
-    private(set) var folderThumbnails = LRUCache<String, [URL]>(capacity: 500)
+    /// シリーズ（フォルダ）の永続サムネイルURL解決結果のメモリ前段キャッシュ (LRU管理, 上限500件)
+    /// 実体（ディスクキャッシュ）は`SeriesThumbnailStore`が保持し、これは毎スクロールでの
+    /// ディスクI/Oを避けるための前段に過ぎないため、`loadFiles()`等では破棄しない
+    private(set) var seriesThumbnails = LRUCache<String, URL?>(capacity: 500)
     
     /// 現在のフォルダID（nilはルート）
     private(set) var currentFolderId: String? = Config.GoogleAPI.defaultFolderId
@@ -253,7 +262,6 @@ final class LibraryViewModel {
     /// ファイル一覧を読み込み
     func loadFiles() async {
         refreshDownloadedComics()
-        folderThumbnails.removeAll()
         isLoading = true
         errorMessage = nil
         
@@ -303,36 +311,33 @@ final class LibraryViewModel {
         }
     }
     
-    /// フォルダ用のプレビューサムネイル（最大4件）を非同期取得してキャッシュする
-    func fetchThumbnails(for folder: DriveItem) async {
+    /// シリーズ（フォルダ）の永続サムネイルを解決する
+    /// ディスクキャッシュ（1巻ダウンロード時に生成済み）があればそれを、なければ
+    /// Driveの1巻候補（自然順で先頭）の低画質thumbnailLinkにフォールバックする
+    func resolveSeriesThumbnail(for folder: DriveItem) async {
         guard folder.isFolder else { return }
-        // 既にローカルキャッシュにのっていれば何もしない
-        guard folderThumbnails[folder.id] == nil else { return }
-        
-        do {
-            let candidates = try await driveService.fetchThumbnailCandidates(forFolder: folder.id, limit: 4)
-            var urls: [URL] = []
-            
-            for candidate in candidates {
-                // 1. ローカルに高画質キャッシュがあるか
-                if let localComic = downloadedComics[candidate.id],
-                   let firstImage = localComic.imagePaths.first {
-                    urls.append(firstImage)
-                }
-                // 2. DriveAPIによる低画質サムネイルがあるか
-                else if let thumb = candidate.thumbnailURL {
-                    urls.append(thumb)
-                }
-            }
-            
-            // 4件に満たない場合でもキャッシュを確定して再フェッチを防ぐ
-            folderThumbnails.set(urls, forKey: folder.id)
-            
-        } catch {
-            print("Folder Thumbnail Fetch Array Error: \(folder.name) - \(error.localizedDescription)")
-            // 失敗時は空配列を入れて無限リトライを防止
-            folderThumbnails.set([], forKey: folder.id)
+        // 既に前段キャッシュにのっていれば何もしない
+        guard seriesThumbnails[folder.id] == nil else { return }
+
+        if let diskURL = SeriesThumbnailStore.shared.cachedThumbnailURL(forFolderId: folder.id) {
+            seriesThumbnails.set(diskURL, forKey: folder.id)
+            return
         }
+
+        do {
+            let firstVolume = try await driveService.fetchArchivesNaturalSorted(inFolder: folder.id).first
+            seriesThumbnails.set(firstVolume?.thumbnailURL, forKey: folder.id)
+        } catch {
+            print("Series Thumbnail Fetch Error: \(folder.name) - \(error.localizedDescription)")
+            // 失敗時はnilを入れて無限リトライを防止
+            seriesThumbnails.set(nil, forKey: folder.id)
+        }
+    }
+
+    /// 指定フォルダの前段キャッシュを無効化する（ダウンロード完了で新しいディスクキャッシュが
+    /// 生成された際に、次回`resolveSeriesThumbnail`でそれを拾わせるため）
+    func invalidateSeriesThumbnail(folderId: String) {
+        seriesThumbnails.removeValue(forKey: folderId)
     }
     
     /// 次のページを読み込み
