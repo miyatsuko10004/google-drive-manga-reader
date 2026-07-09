@@ -165,19 +165,18 @@ final class LibraryViewModel {
     
     /// 最新のアイテム、検索テキスト、ソート順に応じたフィルタリング結果を更新
     private func updateFilteredItems() {
-        let sorted = items.sorted {
+        // 先に検索キーワードで絞り込むことで、ソート（O(N log N)処理）の対象件数を減らすパフォーマンス最適化
+        let targetItems = searchText.isEmpty
+            ? items
+            : items.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+
+        filteredItems = targetItems.sorted {
             switch sortOption {
             case .nameAsc: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             case .nameDesc: return $0.name.localizedStandardCompare($1.name) == .orderedDescending
             case .dateNewest: return ($0.createdTime ?? .distantPast) > ($1.createdTime ?? .distantPast)
             case .dateOldest: return ($0.createdTime ?? .distantPast) < ($1.createdTime ?? .distantPast)
             }
-        }
-        
-        if searchText.isEmpty {
-            filteredItems = sorted
-        } else {
-            filteredItems = sorted.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
         }
     }
     
