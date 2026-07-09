@@ -75,7 +75,7 @@ final class ArchiveService {
         try await Task.detached {
             let fileManager = FileManager.default
 
-            guard let archive = Archive(url: sourceURL, accessMode: .read) else {
+            guard let archive = try? Archive(url: sourceURL, accessMode: .read) else {
                 throw ArchiveServiceError.cannotOpenArchive
             }
 

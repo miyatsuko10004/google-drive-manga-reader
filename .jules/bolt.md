@@ -1,0 +1,3 @@
+## 2024-07-09 - Filter Before Sorting in LibraryViewModel
+**Learning:** Found a classic performance bottleneck where `items` are sorted first (O(N log N)) and then filtered by `searchText` (O(N)). When users type in a search box, doing this on every keystroke for large folders (like a root folder with hundreds/thousands of archives) can cause main thread hitching.
+**Action:** Filter the array first based on `searchText`, and only apply the expensive sort (`localizedStandardCompare`) on the resulting subset. This reduces the time complexity to O(N) + O(K log K) where K is the number of matched items, providing a measurable UI responsiveness boost when searching.
