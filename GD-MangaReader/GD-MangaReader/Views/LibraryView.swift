@@ -247,7 +247,9 @@ struct LibraryView: View {
                         .foregroundColor(.secondary)
                     
                     Button(folder.name) {
-                        // TODO: 中間フォルダへの直接ジャンプ
+                        Task {
+                            await libraryViewModel.navigateToIntermediateFolder(folder)
+                        }
                     }
                     .font(.caption)
                     .lineLimit(1)
