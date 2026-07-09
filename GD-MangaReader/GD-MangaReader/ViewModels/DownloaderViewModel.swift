@@ -21,7 +21,7 @@ final class DownloaderViewModel {
     
     /// 現在のステータス
     /// DownloadSheetから既存コミック検出時に.completedを設定するためinternal(set)
-    internal(set) var status: DownloadStatus = .pending
+    var status: DownloadStatus = .pending
     
     /// フォルダダウンロードモードかどうか
     private var isFolderDownload: Bool = false
