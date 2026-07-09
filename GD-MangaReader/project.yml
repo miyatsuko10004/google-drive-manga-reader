@@ -53,7 +53,9 @@ targets:
       product: GoogleAPIClientForREST_Drive
     - package: ZIPFoundation
     - package: Kingfisher
-    scheme: {}
+    scheme:
+      testTargets:
+        - GD-MangaReaderTests
     info:
       path: GD-MangaReader/Info.plist
       properties:
