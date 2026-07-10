@@ -1,7 +1,7 @@
 # GD-MangaReader
 
 <p align="center">
-  <img src=".github/assets/logo.jpg" alt="GD-MangaReader Logo" width="200" style="border-radius: 20%;" />
+  <img src=".github.com/miyatsuko10004/google-drive-manga-reader/blob/master/GD-MangaReader/GD-MangaReader/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="GD-MangaReader Logo" width="200" style="border-radius: 20%;" />
 </p>
 
 <p align="center">
