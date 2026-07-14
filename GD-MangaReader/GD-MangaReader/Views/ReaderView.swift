@@ -297,6 +297,23 @@ struct ReaderView: View {
                 }
             }
             
+            Section("自動スクロール") {
+                Toggle("自動スクロール", isOn: Binding(
+                    get: { viewModel.isAutoScrollEnabled },
+                    set: { viewModel.isAutoScrollEnabled = $0 }
+                ))
+                if viewModel.isAutoScrollEnabled {
+                    Picker("間隔", selection: Binding(
+                        get: { viewModel.autoScrollInterval },
+                        set: { viewModel.autoScrollInterval = $0 }
+                    )) {
+                        ForEach(1...10, id: \.self) { second in
+                            Text("\(second)秒").tag(second)
+                        }
+                    }
+                }
+            }
+            
             Section("一般設定") {
                 Toggle("読了後に自動削除", isOn: Binding(
                     get: { viewModel.autoDeleteAfterRead },
@@ -565,10 +582,38 @@ final class ReaderViewModel {
         didSet { UserDefaults.standard.set(autoDeleteAfterRead, forKey: "autoDeleteAfterRead") }
     }
     
+    var isAutoScrollEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isAutoScrollEnabled, forKey: "isAutoScrollEnabled")
+            handleAutoScrollStateChange()
+        }
+    }
+    
+    var autoScrollInterval: Int {
+        didSet {
+            UserDefaults.standard.set(autoScrollInterval, forKey: "autoScrollInterval")
+            if isAutoScrolling {
+                resetAutoScrollTimer()
+            }
+        }
+    }
+    
     // MARK: - State
     
-    var currentPage: Int
-    var showUI: Bool = true
+    var currentPage: Int {
+        didSet {
+            if isAutoScrollEnabled && !showUI {
+                resetAutoScrollTimer()
+            }
+        }
+    }
+    
+    var showUI: Bool = true {
+        didSet {
+            handleAutoScrollStateChange()
+        }
+    }
+    
     var isLandscape: Bool = false {
         didSet { 
             recalculateCurrentPage()
@@ -588,6 +633,10 @@ final class ReaderViewModel {
     private(set) var nextComic: LocalComic?
     private(set) var nextDriveItem: DriveItem?
     private(set) var widePageIndices: Set<Int> = []
+    
+    // 自動スクロール実行中ステータスとタスク
+    var isAutoScrolling: Bool = false
+    private var autoScrollTask: Task<Void, Never>?
     
     private var checkNextVolumeTask: Task<Void, Never>?
     private var scanWidePagesTask: Task<Void, Never>?
@@ -615,6 +664,10 @@ final class ReaderViewModel {
         self.isSpreadGapRemoved = UserDefaults.standard.object(forKey: "isSpreadGapRemoved") as? Bool ?? true
         self.autoDeleteAfterRead = UserDefaults.standard.bool(forKey: "autoDeleteAfterRead")
         
+        self.isAutoScrollEnabled = UserDefaults.standard.bool(forKey: "isAutoScrollEnabled")
+        let intervalVal = UserDefaults.standard.integer(forKey: "autoScrollInterval")
+        self.autoScrollInterval = intervalVal > 0 ? intervalVal : 5
+        
         // 初期ページの見開き位置への調整
         recalculateCurrentPage()
         
@@ -636,9 +689,57 @@ final class ReaderViewModel {
     }
     
     func cleanup() {
+        stopAutoScroll()
         checkNextVolumeTask?.cancel()
         scanWidePagesTask?.cancel()
         suggestionTask?.cancel()
+    }
+    
+    // MARK: - Auto Scroll Actions
+    
+    func handleAutoScrollStateChange() {
+        if isAutoScrollEnabled && !showUI {
+            startAutoScroll()
+        } else {
+            stopAutoScroll()
+        }
+    }
+    
+    func startAutoScroll() {
+        stopAutoScroll()
+        guard isAutoScrollEnabled else { return }
+        isAutoScrolling = true
+        
+        autoScrollTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && self.isAutoScrolling {
+                // `autoScrollInterval` 秒待つ
+                try? await Task.sleep(nanoseconds: UInt64(self.autoScrollInterval) * 1_000_000_000)
+                guard !Task.isCancelled && self.isAutoScrolling else { break }
+                
+                // 最終ページに到達している場合
+                let lastIndex = self.pageIndices.last ?? 0
+                if self.currentPage >= lastIndex {
+                    // 次の巻サジェストが表示されるはずなので自動スクロールを止める
+                    self.stopAutoScroll()
+                    break
+                }
+                
+                self.goToNextPage()
+            }
+        }
+    }
+    
+    func stopAutoScroll() {
+        isAutoScrolling = false
+        autoScrollTask?.cancel()
+        autoScrollTask = nil
+    }
+    
+    func resetAutoScrollTimer() {
+        if isAutoScrollEnabled && !showUI {
+            startAutoScroll()
+        }
     }
     
     private func scanWidePages() async {
