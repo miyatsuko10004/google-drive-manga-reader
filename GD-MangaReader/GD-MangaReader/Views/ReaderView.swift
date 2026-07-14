@@ -6,14 +6,25 @@
 
 import SwiftUI
 
+/// リーダーから「次の巻」として開く対象
+enum NextVolumeTarget {
+    case local(LocalComic)
+    case drive(DriveItem)
+}
+
 /// 漫画閲覧画面
 struct ReaderView: View {
     let source: any ComicSource
+    /// 「次を読む」時に呼ばれるコールバック。
+    /// 呼び出し側（LibraryView）がreadingSessionを直接差し替えることで、
+    /// fullScreenCoverを閉じずにリーダーの中身だけを次の巻に切り替える
+    let onOpenNext: (NextVolumeTarget) -> Void
     @State private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
-    
-    init(source: any ComicSource) {
+
+    init(source: any ComicSource, onOpenNext: @escaping (NextVolumeTarget) -> Void = { _ in }) {
         self.source = source
+        self.onOpenNext = onOpenNext
         self._viewModel = State(initialValue: ReaderViewModel(source: source))
     }
     
@@ -431,25 +442,23 @@ struct ReaderView: View {
         suggestionContent(title: nextComic.title) {
             // 現在の巻の終了処理（自動削除など）
             await viewModel.finalizeCurrentVolume()
-            
-            // 次の巻を開く
-            NotificationCenter.default.post(
-                name: Notification.Name("OpenNextVolume"),
-                object: nextComic
-            )
-            dismiss()
+
+            // 次の巻を開く（カバーは閉じない。LibraryView側でセッションを
+            // 差し替えることでリーダーの中身がそのまま次の巻に切り替わる）
+            onOpenNext(.local(nextComic))
         }
     }
-    
+
     private func nextVolumeOverlayForDrive(item: DriveItem) -> some View {
         suggestionContent(title: item.name) {
+            // フォルダの場合は画像一覧の取得が完了するまで現在の巻が表示された
+            // ままになるため、連打で同じ要求が多重に走らないよう、タップを受け
+            // 付けた時点でサジェストを閉じておく
+            viewModel.showNextVolumeSuggestion = false
+
             // リモートの場合は自動削除なし
-            // 次の巻を開く
-            NotificationCenter.default.post(
-                name: Notification.Name("OpenNextDriveItem"),
-                object: item
-            )
-            dismiss()
+            // 次の巻を開く（取得完了時にLibraryView側でセッションが差し替わる）
+            onOpenNext(.drive(item))
         }
     }
     

@@ -871,36 +871,55 @@ struct AlertsAndSheetsModifier: ViewModifier {
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
 
-    /// 「次のDriveアイテムを開く」処理の最新リクエストを追跡するトークン
-    /// 0.6秒の遅延やフォルダ内一覧取得中に別の遷移リクエストが割り込んだ場合、
-    /// 古いリクエストがreadingSessionを上書きしてしまうのを防ぐために使う
+    /// 「次のDriveアイテムを開く」処理で現在受理中の（進行中の）リクエストのアイテムID。
+    /// 非nilは「このIDのリクエストが進行中」を意味し、完了・失敗・割り込みなどの
+    /// 終端に達したら必ずnilに戻す。用途は2つ:
+    /// - フォルダ内一覧取得（非同期）中に別の遷移リクエストが割り込んだ場合、
+    ///   古いリクエストがreadingSessionを上書きしてしまうのを防ぐ
+    /// - 同じアイテムへのリクエストの多重実行（ボタン連打）を防ぐ
     @State private var pendingOpenNextDriveItemID: String?
 
-    /// リーダーからの「次のDriveアイテムを開く」通知を処理する
+    /// リーダーからの「次の巻を開く」要求を処理する。
+    /// fullScreenCoverは閉じず、readingSessionを直接差し替える。
+    /// （`.id(session.id)` により ReaderView と ReaderViewModel は作り直されるため、
+    ///   カバーを一度閉じて再表示する必要はなく、黒画面のギャップが発生しない）
+    private func handleOpenNext(_ target: NextVolumeTarget) {
+        switch target {
+        case .local(var nextComic):
+            // 進行中のDriveフォルダ取得があれば、この新しい要求で無効化する
+            pendingOpenNextDriveItemID = nil
+            // 次の巻は1ページ目から表示する
+            nextComic.lastReadPage = 0
+            readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
+        case .drive(let nextItem):
+            handleOpenNextDriveItem(nextItem)
+        }
+    }
+
+    /// リーダーからの「次のDriveアイテムを開く」要求を処理する
     private func handleOpenNextDriveItem(_ nextItem: DriveItem) {
-        // 通知受信時点でリクエストIDと現在のフォルダIDをスナップショットする
-        // （遅延中にフォルダ移動やさらに新しい遷移が発生しても影響を受けないようにするため）
+        // 同じアイテムへの要求が既に進行中なら無視する（「次を読む」連打での
+        // フォルダ一覧取得の多重実行を防ぐ）
+        guard pendingOpenNextDriveItemID != nextItem.id else { return }
+
+        // 要求受付時点でリクエストIDと現在のフォルダIDをスナップショットする
+        // （フォルダ内一覧の取得中にさらに新しい遷移が発生しても影響を受けないようにするため）
         let requestID = nextItem.id
         let parentId = libraryViewModel.currentFolderId
         pendingOpenNextDriveItemID = requestID
 
-        // 現在のセッションを閉じる
-        readingSession = nil
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // この間に別のリクエストが割り込んでいたら何もしない
-            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
-
-            if authViewModel.isOfflineMode {
-                openNextDriveItemOffline(nextItem)
-            } else {
-                openNextDriveItemOnline(nextItem, requestID: requestID, parentId: parentId)
-            }
+        if authViewModel.isOfflineMode {
+            openNextDriveItemOffline(nextItem)
+        } else {
+            openNextDriveItemOnline(nextItem, requestID: requestID, parentId: parentId)
         }
     }
 
     /// オフラインモード時: ダウンロード済みアーカイブのみ開ける
     private func openNextDriveItemOffline(_ nextItem: DriveItem) {
+        // 同期的に完結するのでリクエストはここで終端に達する
+        pendingOpenNextDriveItemID = nil
+
         if nextItem.isArchive,
            var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
            existingComic.status == .completed {
@@ -908,7 +927,9 @@ struct AlertsAndSheetsModifier: ViewModifier {
             existingComic.lastReadPage = 0
             readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
         } else {
-            // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
+            // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可。
+            // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+            readingSession = nil
             toast = ToastData(
                 title: "オフラインモード",
                 message: "この漫画はオフラインでは閲覧できません。",
@@ -932,6 +953,7 @@ struct AlertsAndSheetsModifier: ViewModifier {
     private func openNextFolder(_ nextItem: DriveItem, requestID: String, parentId: String?) {
         // フォルダ内の画像一覧を取得してからソースを構築する
         // （空のfilesを渡すとpageCount=0のまま固定されてしまうため）
+        // 取得が終わるまでは現在の巻を表示したままにし、完了時にセッションを差し替える
         Task { @MainActor in
             var allItems: [DriveItem] = []
             var token: String?
@@ -945,6 +967,15 @@ struct AlertsAndSheetsModifier: ViewModifier {
                     token = result.nextPageToken
                 } while token != nil
             } catch {
+                // 取得中に別の遷移リクエストが割り込んでいた場合は何もしない
+                guard pendingOpenNextDriveItemID == requestID else { return }
+                // ここでリクエストは終端に達する
+                pendingOpenNextDriveItemID = nil
+                // 取得中にユーザーがリーダーを手動で閉じていた場合は、
+                // もう関心のないエラートーストを出さない
+                guard readingSession != nil else { return }
+                // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+                readingSession = nil
                 toast = ToastData(
                     title: "読み込み失敗",
                     message: error.localizedDescription,
@@ -953,8 +984,19 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 return
             }
 
+            // 取得中に別の遷移リクエストが割り込んでいた場合は、それを上書きしない
+            guard pendingOpenNextDriveItemID == requestID else { return }
+            // ここでリクエストは終端に達する（以降は成功/空フォルダのいずれか）
+            pendingOpenNextDriveItemID = nil
+            // 取得中にユーザーがリーダーを手動で閉じていた場合（readingSession == nil）、
+            // このリクエストはもう無効。ここで開き直すと閉じたはずのリーダーが
+            // 勝手に復活してしまうため何もしない
+            guard readingSession != nil else { return }
+
             let images = allItems.filter { $0.isImage }
             guard !images.isEmpty else {
+                // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+                readingSession = nil
                 toast = ToastData(
                     title: "ダウンロード",
                     message: "この巻には画像が含まれていません",
@@ -962,9 +1004,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 )
                 return
             }
-
-            // 取得中に別の遷移リクエストが割り込んでいた場合は、それを上書きしない
-            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
 
             let source = RemoteComicSource(
                 folderId: nextItem.id,
@@ -979,6 +1018,9 @@ struct AlertsAndSheetsModifier: ViewModifier {
 
     /// 次の巻が単独画像の場合
     private func openNextImage(_ nextItem: DriveItem, parentId: String?) {
+        // 同期的に完結するのでリクエストはここで終端に達する
+        pendingOpenNextDriveItemID = nil
+
         // idは画像自身のものを使う（親フォルダIDを使うと、同じフォルダ内の
         // 別画像へ連続ジャンプした際にidが変化せず、状態リセットも次巻検出も機能しなくなる）
         let source = RemoteComicSource(
@@ -996,13 +1038,27 @@ struct AlertsAndSheetsModifier: ViewModifier {
         // アーカイブの場合はダウンロード済みかチェック
         if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
            existingComic.status == .completed {
+            // 同期的に完結するのでリクエストはここで終端に達する
+            pendingOpenNextDriveItemID = nil
             // 次の巻は1ページ目から表示する
             existingComic.lastReadPage = 0
             readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
         } else {
-            // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
-            // リーダーからの自動遷移なので、一旦選択状態にする
-            selectedItem = nextItem
+            // 未ダウンロードの場合はDownloadSheet（selectedItemのsheet）で案内する。
+            // このパスだけはセッションの差し替えではなくsheet表示が必要であり、
+            // fullScreenCoverが表示されたままsheetは出せないため、明示的にカバーを
+            // 閉じてから、dismissアニメーションの完了を待ってsheetを表示する
+            // （同時に行うと表示が競合してsheetが出ないことがある）
+            let requestID = nextItem.id
+            readingSession = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                // 待機中に別の遷移リクエストが割り込んでいた場合は何もしない
+                guard pendingOpenNextDriveItemID == requestID else { return }
+                // ここでリクエストは終端に達する
+                pendingOpenNextDriveItemID = nil
+                guard readingSession == nil else { return }
+                selectedItem = nextItem
+            }
         }
     }
 
@@ -1013,25 +1069,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 // 前段キャッシュが削除済みファイルのURLを保持し続けないようにする）
                 libraryViewModel.refreshDownloadedComics()
                 libraryViewModel.invalidateAllSeriesThumbnails()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
-                if var nextComic = notification.object as? LocalComic {
-                    // 次の巻は1ページ目から表示する
-                    nextComic.lastReadPage = 0
-
-                    // 現在のセッションを一度閉じてから新しいセッションを開く
-                    readingSession = nil
-                    
-                    // 確実に前のシートが閉じるのを待ってから新しいセッションを開始
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
-                    }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextDriveItem"))) { notification in
-                if let nextItem = notification.object as? DriveItem {
-                    handleOpenNextDriveItem(nextItem)
-                }
             }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
                 Button("キャンセル", role: .cancel) {}
@@ -1194,11 +1231,13 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 )
             }
             .fullScreenCover(item: $readingSession) { session in
+                // 「次の巻」への遷移はカバーを閉じずにitem（readingSession）を
+                // 直接差し替えることで行う（fullScreenCover(item:)は表示中のitem変更を
+                // dismiss+再表示ではなく中身の差し替えとして扱うため、黒画面が出ない）。
                 // sessionのidが変わるたびにReaderViewとその@State（ReaderViewModel）を
-                // 強制的に作り直す。これがないと、次の巻への遷移がSwiftUI側で
-                // 「新規表示」ではなく「同一シートの内容差し替え」として扱われた場合に
-                // 古いReaderViewModel（＝古いページ数）が使い回されてしまう
-                ReaderView(source: session.source)
+                // 強制的に作り直す。これがないと古いReaderViewModel（＝古いページ数）が
+                // 使い回されてしまう
+                ReaderView(source: session.source, onOpenNext: handleOpenNext)
                     .id(session.id)
             }
     }
