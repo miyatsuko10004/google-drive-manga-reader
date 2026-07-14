@@ -103,6 +103,78 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Display Name Parsing
+
+/// 「作品名[作者名]」（シリーズフォルダ）や「[作者名]作品名 第〇〇巻」（アーカイブ）形式の
+/// 名前を作品名・作者名・巻数に分解した表示用モデル
+struct MangaDisplayName: Hashable, Sendable {
+    /// 作品名（分解できない名前はそのまま全体が入る）
+    let title: String
+
+    /// 作者名（`[...]` が含まれない名前ではnil）
+    let author: String?
+
+    /// 巻数表記（例: "第01巻"）。含まれない名前ではnil
+    let volume: String?
+
+    /// 作品名の下に添える補足行（例: "第01巻 · 尾田栄一郎"）
+    var subtitle: String? {
+        let parts = [volume, author].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    init(parsing rawName: String) {
+        var working = rawName.trimmingCharacters(in: .whitespaces)
+        var author: String?
+
+        // 末尾の「[作者名]」（フォルダ形式）または先頭の「[作者名]」（アーカイブ形式）を抽出する。
+        // 末尾を先に判定するのは、「[HQ]鬼滅の刃[吾峠呼世晴]」のように両端にブラケットがある名前で
+        // 末尾の作者名タグを優先するため。アーカイブ名は（拡張子除去後）「第〇〇巻」で終わり
+        // 「]」で終わることはないので、この順序でアーカイブ形式の判定を妨げることはない。
+        // 作者名か残りの作品名が空になる場合は分解せず、名前全体を作品名として扱う
+        if working.hasSuffix("]"), let open = working.lastIndex(of: "[") {
+            let candidate = working[working.index(after: open)..<working.index(before: working.endIndex)]
+                .trimmingCharacters(in: .whitespaces)
+            let rest = working[..<open].trimmingCharacters(in: .whitespaces)
+            if !candidate.isEmpty && !rest.isEmpty {
+                author = candidate
+                working = rest
+            }
+        } else if working.hasPrefix("["), let close = working.firstIndex(of: "]") {
+            let candidate = working[working.index(after: working.startIndex)..<close]
+                .trimmingCharacters(in: .whitespaces)
+            let rest = working[working.index(after: close)...]
+                .trimmingCharacters(in: .whitespaces)
+            if !candidate.isEmpty && !rest.isEmpty {
+                author = candidate
+                working = rest
+            }
+        }
+
+        // 末尾の「第〇〇巻」を巻数として切り出す
+        var volume: String?
+        if let range = working.range(of: "第[0-9０-９]+巻$", options: .regularExpression) {
+            let rest = working[..<range.lowerBound].trimmingCharacters(in: .whitespaces)
+            if !rest.isEmpty {
+                volume = String(working[range])
+                working = rest
+            }
+        }
+
+        self.title = working
+        self.author = author
+        self.volume = volume
+    }
+}
+
+extension DriveItem {
+    /// 表示用に分解した名前（アーカイブは拡張子を除いてから解析する）
+    var displayName: MangaDisplayName {
+        let base = isArchive ? (name as NSString).deletingPathExtension : name
+        return MangaDisplayName(parsing: base)
+    }
+}
+
 // MARK: - LocalComic Extension
 
 extension DriveItem {
