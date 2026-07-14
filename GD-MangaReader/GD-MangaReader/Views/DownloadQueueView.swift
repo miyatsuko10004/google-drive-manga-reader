@@ -114,10 +114,10 @@ struct DownloadQueueRow: View {
             ProgressView()
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
+                .foregroundColor(.appDestructive)
         case .cancelled:
             Image(systemName: "xmark.circle")
                 .foregroundColor(.secondary)
@@ -136,7 +136,7 @@ struct DownloadQueueRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 ProgressView(value: task.progress)
                     .progressViewStyle(.linear)
-                    .tint(.blue)
+                    .tint(.appProgressTint)
 
                 Text(runningStatusText)
                     .font(.caption2)
@@ -146,12 +146,12 @@ struct DownloadQueueRow: View {
         case .completed:
             Text("完了")
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
         case .failed(let message):
             Text(message)
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(.appDestructive)
                 .lineLimit(2)
 
         case .cancelled:

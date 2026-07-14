@@ -19,10 +19,10 @@ struct ToastData: Equatable {
         
         var color: Color {
             switch self {
-            case .success: return .green
-            case .error: return .red
-            case .info: return .blue
-            case .warning: return .orange
+            case .success: return .appSuccess
+            case .error: return .appDestructive
+            case .info: return .accentColor
+            case .warning: return .appWarning
             }
         }
     }

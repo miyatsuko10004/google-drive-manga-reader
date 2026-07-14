@@ -289,7 +289,7 @@ struct LibraryView: View {
                 }
                 .padding(.vertical, 8)
                 .padding(.horizontal, 16)
-                .background(Color.orange)
+                .background(Color.appWarning)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
             
@@ -300,7 +300,7 @@ struct LibraryView: View {
                         .fontWeight(.medium)
                 } icon: {
                     Image(systemName: authViewModel.isOfflineMode ? "wifi.slash" : "wifi")
-                        .foregroundColor(authViewModel.isOfflineMode ? .orange : .blue)
+                        .foregroundColor(authViewModel.isOfflineMode ? .appWarning : .accentColor)
                 }
                 
                 Spacer()
@@ -314,7 +314,7 @@ struct LibraryView: View {
                     }
                 ))
                 .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: .orange))
+                .toggleStyle(SwitchToggleStyle(tint: .appWarning))
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
@@ -389,7 +389,7 @@ struct LibraryView: View {
                 HStack {
                     ProgressView(value: downloadQueue.overallProgress)
                         .progressViewStyle(.linear)
-                        .tint(.green)
+                        .tint(.appProgressTint)
 
                     Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
                         .font(.caption)
@@ -646,7 +646,7 @@ struct DriveItemGridCell: View {
                             Spacer()
                             ProgressView(value: readingProgress)
                                 .progressViewStyle(.linear)
-                                .tint(.blue)
+                                .tint(.appProgressTint)
                                 .background(Color.white.opacity(0.8))
                         }
                     }
@@ -656,13 +656,13 @@ struct DriveItemGridCell: View {
                 .overlay(alignment: .topTrailing) {
                     if isBulkDownloading {
                         ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                             .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
                             .offset(x: 4, y: -4)
                     } else if isDownloaded {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
-                            .foregroundColor(.green)
+                            .foregroundColor(.appDownloadedBadge)
                             .background(Circle().fill(.white).frame(width: 18, height: 18))
                             .offset(x: 4, y: -4)
                     }
@@ -720,9 +720,9 @@ struct DriveItemGridCell: View {
 
     private var iconColor: Color {
         if item.isFolder {
-            return .blue
+            return .accentColor
         } else if item.isArchive {
-            return .orange
+            return .appWarning
         } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
             return .purple
         }
@@ -774,13 +774,13 @@ struct DriveItemListRow: View {
                 if isBulkDownloading {
                     ProgressView()
                         .scaleEffect(0.6)
-                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                         .background(Circle().fill(.white).frame(width: 16, height: 16).shadow(radius: 1))
                         .offset(x: 2, y: -2)
                 } else if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(.appDownloadedBadge)
                         .background(Circle().fill(.white).frame(width: 12, height: 12))
                         .offset(x: 2, y: -2)
                 }
@@ -807,7 +807,7 @@ struct DriveItemListRow: View {
                 if isDownloaded && readingProgress > 0 {
                     ProgressView(value: readingProgress)
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(.appProgressTint)
                         .frame(height: 4)
                         .padding(.top, 2)
                         .padding(.bottom, 2)
@@ -839,9 +839,9 @@ struct DriveItemListRow: View {
     
     private var iconColor: Color {
         if item.isFolder {
-            return .blue
+            return .accentColor
         } else if item.isArchive {
-            return .orange
+            return .appWarning
         } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
             return .purple
         }

@@ -66,12 +66,12 @@ struct DownloadSheet: View {
                 // ファイルアイコン
                 ZStack {
                     Circle()
-                        .fill(Color.orange.opacity(0.2))
+                        .fill(Color.appWarning.opacity(0.2))
                         .frame(width: 120, height: 120)
 
                     Image(systemName: target.iconName)
                         .font(.system(size: 50))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.appWarning)
                 }
 
                 // ファイル名
@@ -144,11 +144,11 @@ struct DownloadSheet: View {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 50))
-                            .foregroundColor(.red)
+                            .foregroundColor(.appDestructive)
 
                         Text("エラーが発生しました")
                             .font(.headline)
-                            .foregroundColor(.red)
+                            .foregroundColor(.appDestructive)
 
                         Text(message)
                             .font(.caption)
@@ -181,7 +181,7 @@ struct DownloadSheet: View {
                 VStack(spacing: 8) {
                     ProgressView(value: downloader.extractProgress)
                         .progressViewStyle(.linear)
-                        .tint(.green)
+                        .tint(.appProgressTint)
 
                     Text("解凍中... \(Int(downloader.extractProgress * 100))%")
                         .font(.caption)
@@ -191,7 +191,7 @@ struct DownloadSheet: View {
                 VStack(spacing: 8) {
                     ProgressView(value: downloader.downloadProgress)
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(.appProgressTint)
 
                     Text(downloadStatusText(downloader: downloader))
                         .font(.caption)
@@ -208,11 +208,11 @@ struct DownloadSheet: View {
         VStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 50))
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
             Text("完了しました！")
                 .font(.headline)
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
             if let comic = completedComic {
                 Text("\(comic.pageCount)ページ")
