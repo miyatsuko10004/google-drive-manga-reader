@@ -59,14 +59,25 @@ struct RecentComicsShelfView: View {
                                 }
                                 .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
                                 
-                                // タイトル
-                                Text(comic.title)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                    .frame(width: 120, alignment: .leading)
+                                // タイトル（作品名と巻数・作者名を改行して表示）
+                                let displayName = MangaDisplayName(parsing: comic.title)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(displayName.title)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+
+                                    if let subtitle = displayName.subtitle {
+                                        Text(subtitle)
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .accessibilityElement(children: .combine)
+                                .frame(width: 120, alignment: .leading)
                             }
                         }
                         .buttonStyle(PlainButtonStyle())

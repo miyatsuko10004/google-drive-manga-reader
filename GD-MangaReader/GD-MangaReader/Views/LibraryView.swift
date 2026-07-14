@@ -668,12 +668,22 @@ struct DriveItemGridCell: View {
                     }
                 }
 
-            // ファイル名
-            Text(item.name)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-            
+            // ファイル名（作品名と巻数・作者名を改行して表示）
+            // 補足行がないセルにも同じ高さを確保し、グリッド行の下端を揃える
+            let displayName = item.displayName
+            VStack(spacing: 2) {
+                Text(displayName.title)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                Text(displayName.subtitle ?? " ")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+
             // サイズ
             if !item.isFolder {
                 Text(item.formattedSize)
@@ -776,12 +786,24 @@ struct DriveItemListRow: View {
                 }
             }
             
-            // ファイル情報
+            // ファイル情報（作品名と巻数・作者名を改行して表示）
+            let displayName = item.displayName
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .font(.body)
-                    .lineLimit(1)
-                
+                // タイトルと補足行はVoiceOverで1つの要素として読み上げる
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName.title)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    if let subtitle = displayName.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+
                 if isDownloaded && readingProgress > 0 {
                     ProgressView(value: readingProgress)
                         .progressViewStyle(.linear)
