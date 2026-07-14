@@ -628,14 +628,18 @@ final class ReaderViewModel {
         }
     }
     
-    var showNextVolumeSuggestion: Bool = false
+    var showNextVolumeSuggestion: Bool = false {
+        didSet {
+            handleAutoScrollStateChange()
+        }
+    }
     var isPreparingNextVolume: Bool = false
     private(set) var nextComic: LocalComic?
     private(set) var nextDriveItem: DriveItem?
     private(set) var widePageIndices: Set<Int> = []
     
     // 自動スクロール実行中ステータスとタスク
-    var isAutoScrolling: Bool = false
+    private(set) var isAutoScrolling: Bool = false
     private var autoScrollTask: Task<Void, Never>?
     
     private var checkNextVolumeTask: Task<Void, Never>?
@@ -698,7 +702,7 @@ final class ReaderViewModel {
     // MARK: - Auto Scroll Actions
     
     func handleAutoScrollStateChange() {
-        if isAutoScrollEnabled && !showUI {
+        if isAutoScrollEnabled && !showUI && !showNextVolumeSuggestion {
             startAutoScroll()
         } else {
             stopAutoScroll()
@@ -707,14 +711,15 @@ final class ReaderViewModel {
     
     func startAutoScroll() {
         stopAutoScroll()
-        guard isAutoScrollEnabled else { return }
+        guard isAutoScrollEnabled && !showNextVolumeSuggestion else { return }
         isAutoScrolling = true
         
         autoScrollTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled && self.isAutoScrolling {
                 // `autoScrollInterval` 秒待つ
-                try? await Task.sleep(nanoseconds: UInt64(self.autoScrollInterval) * 1_000_000_000)
+                let safeInterval = max(1, self.autoScrollInterval)
+                try? await Task.sleep(nanoseconds: UInt64(safeInterval) * 1_000_000_000)
                 guard !Task.isCancelled && self.isAutoScrolling else { break }
                 
                 // 最終ページに到達している場合

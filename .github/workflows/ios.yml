@@ -47,4 +47,4 @@ jobs:
       - name: Test
         run: |
           cd GD-MangaReader
-          xcodebuild test -scheme GD-MangaReader -project GD-MangaReader.xcodeproj -destination 'platform=iOS Simulator,name=iPhone 15' CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
+          xcodebuild test -scheme GD-MangaReader -project GD-MangaReader.xcodeproj -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
