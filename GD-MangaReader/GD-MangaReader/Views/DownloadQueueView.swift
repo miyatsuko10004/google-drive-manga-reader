@@ -71,6 +71,7 @@ struct DownloadQueueView: View {
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
+                        .accessibilityLabel("メニュー")
                     }
                 }
             }
@@ -111,6 +112,7 @@ struct DownloadQueueRow: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("キャンセル")
             }
         }
         .padding(.vertical, 4)

@@ -77,6 +77,13 @@ final class StatusCenter {
             currentToast = toast
         }
 
+        // VoiceOver利用時はトーストの内容を読み上げる
+        // （トーストは3秒で自動消去されるため、フォーカス移動なしで内容を伝える）
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "\(toast.title)、\(toast.message)"
+        )
+
         switch toast.type {
         case .success:
             Self.haptic(.success)

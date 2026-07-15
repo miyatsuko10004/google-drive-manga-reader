@@ -39,7 +39,8 @@ struct LoginView: View {
                         )
                     
                     Text("GD-MangaReader")
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        // Dynamic Typeで拡大縮小できるようfixed sizeではなくスタイル指定にする
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
                         .foregroundColor(.white)
                     
                     Text("Google Driveの漫画を読もう")
@@ -57,6 +58,9 @@ struct LoginView: View {
                             .scaleEffect(1.5)
                     } else {
                         VStack(spacing: 16) {
+                            // 既知の制限: GoogleSignInButtonはサードパーティ製のUIKitラッパーで、
+                            // 内部のフォントがDynamic Typeに追従しない可能性がある。
+                            // 外側のframeを最小値のみの指定にして、少なくとも枠は拡大を妨げないようにする
                             GoogleSignInButton(
                                 viewModel: GoogleSignInButtonViewModel(
                                     scheme: .light,
@@ -68,17 +72,22 @@ struct LoginView: View {
                                     await authViewModel.signIn()
                                 }
                             }
-                            .frame(width: 280, height: 50)
+                            // 幅・高さは最小値のみ固定し、Dynamic Typeでの拡大に追従できるようにする
+                            .frame(minWidth: 280, minHeight: 50)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
-                            
+
                             Button(action: {
                                 authViewModel.setOfflineMode(true)
                             }) {
                                 Text("オフラインで利用")
-                                    .font(.system(size: 16, weight: .medium))
+                                    // Dynamic Typeに追従するテキストスタイルと、
+                                    // 固定frameの代わりにパディング＋最小サイズでボタンを構成する
+                                    .font(.body.weight(.medium))
                                     .foregroundColor(.white)
-                                    .frame(width: 280, height: 50)
+                                    .padding(.vertical, 12)
+                                    .padding(.horizontal, 24)
+                                    .frame(minWidth: 280, minHeight: 50)
                                     .background(Color.white.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .overlay(

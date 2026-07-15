@@ -85,6 +85,9 @@ struct ToastView: View {
         .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
         .padding(.horizontal)
         .contentShape(Rectangle())
+        // VoiceOverではカード全体を1要素として読み上げる
+        // （内包するアクションボタンはカスタムアクションに昇格する）
+        .accessibilityElement(children: .combine)
         .onTapGesture {
             onDismiss()
         }

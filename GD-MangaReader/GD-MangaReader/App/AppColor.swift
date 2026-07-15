@@ -25,4 +25,8 @@ extension Color {
     /// プログレスバー・スピナーの共通ティント（ダウンロード進捗・解凍進捗・読了バー）
     /// アクセントカラーに統一（アセットの重複による値のズレを防ぐためエイリアスにする）
     static let appProgressTint = Color.accentColor
+
+    /// リーダー内アクセント（黒背景上のスライダー・次巻サジェスト等で使う意図的なオレンジ）
+    /// リーダーは常時黒背景のため、ライト/ダークで変化しない単一値でよい
+    static let readerAccent = Color.orange
 }

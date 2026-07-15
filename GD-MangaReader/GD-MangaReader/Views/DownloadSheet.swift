@@ -43,6 +43,10 @@ struct DownloadSheet: View {
     @State private var queueTask: DownloadQueueTask?
     @State private var downloadedComic: LocalComic?
 
+    /// ファイルアイコンの円と中のアイコンサイズ（Dynamic Typeに追従して拡大縮小する）
+    @ScaledMetric(relativeTo: .largeTitle) private var iconCircleSize: CGFloat = 120
+    @ScaledMetric(relativeTo: .largeTitle) private var iconFontSize: CGFloat = 50
+
     private var queueManager: DownloadQueueManager { .shared }
 
     /// 表示すべき完了コミック
@@ -67,12 +71,13 @@ struct DownloadSheet: View {
                 ZStack {
                     Circle()
                         .fill(Color.appWarning.opacity(0.2))
-                        .frame(width: 120, height: 120)
+                        .frame(width: iconCircleSize, height: iconCircleSize)
 
                     Image(systemName: target.iconName)
-                        .font(.system(size: 50))
+                        .font(.system(size: iconFontSize))
                         .foregroundColor(.appWarning)
                 }
+                .accessibilityHidden(true)
 
                 // ファイル名
                 Text(target.name)

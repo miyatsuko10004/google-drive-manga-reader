@@ -448,6 +448,7 @@ struct LibraryView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                 }
+                .accessibilityLabel("前のフォルダに戻る")
             }
         }
         
@@ -511,6 +512,7 @@ struct LibraryView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("メニュー")
         }
     }
     
@@ -794,12 +796,14 @@ struct DriveItemGridCell: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                             .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
                             .offset(x: 4, y: -4)
+                            .accessibilityLabel("ダウンロード中")
                     } else if isDownloaded {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
                             .foregroundColor(.appDownloadedBadge)
                             .background(Circle().fill(.white).frame(width: 18, height: 18))
                             .offset(x: 4, y: -4)
+                            .accessibilityLabel("ダウンロード済み")
                     }
                 }
 
@@ -912,12 +916,14 @@ struct DriveItemListRow: View {
                         .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                         .background(Circle().fill(.white).frame(width: 16, height: 16).shadow(radius: 1))
                         .offset(x: 2, y: -2)
+                        .accessibilityLabel("ダウンロード中")
                 } else if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundColor(.appDownloadedBadge)
                         .background(Circle().fill(.white).frame(width: 12, height: 12))
                         .offset(x: 2, y: -2)
+                        .accessibilityLabel("ダウンロード済み")
                 }
             }
             
@@ -962,10 +968,11 @@ struct DriveItemListRow: View {
             
             Spacer()
             
-            // 矢印
+            // 矢印（装飾のためVoiceOverからは隠す）
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .accessibilityHidden(true)
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
