@@ -318,8 +318,12 @@ final class LibraryViewModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 // サーバー検索に失敗した場合は、読み込み済みアイテムのローカルフィルタ結果へ
-                // フォールバックする（フォルダ一覧ごとエラー画面に置き換えるのは過剰なため）
-                self.searchResults = self.filteredItems
+                // フォールバックする（フォルダ一覧ごとエラー画面に置き換えるのは過剰なため）。
+                // filteredItemsは未トリムのsearchTextで絞り込むため、サーバーと同じ
+                // トリム済みqueryでフィルタし直す（" Naruto "等で結果が消えないように）
+                self.searchResults = self.sortItems(
+                    self.items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+                )
                 self.isSearching = false
             }
         }

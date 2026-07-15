@@ -26,7 +26,9 @@ final class StorageSortTests: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
 
-        originalComics = (try? storageService.loadComics()) ?? []
+        // バックアップ取得に失敗した場合はテストを失敗させる
+        // （try?で[]に潰すと、tearDownが実カタログを空配列で上書きしてしまう）
+        originalComics = try storageService.loadComics()
         createdDirectoryNames = []
 
         let day0 = Date(timeIntervalSince1970: 1_000_000)
@@ -48,7 +50,8 @@ final class StorageSortTests: XCTestCase {
                 try? FileManager.default.removeItem(at: dir)
             }
         }
-        try? storageService.saveComics(originalComics)
+        // 復元失敗はデータ破壊なので握り潰さずテストを失敗させる
+        try storageService.saveComics(originalComics)
 
         alphaComic = nil
         bravoComic = nil

@@ -70,39 +70,44 @@ private struct DownloadQueueBannerView: View {
     private var downloadQueue: DownloadQueueManager { .shared }
 
     var body: some View {
-        HStack(spacing: 16) {
-            ProgressView()
-                .tint(.white)
+        // onTapGestureではなくButtonにすることで、VoiceOverが操作可能なボタンとして扱う
+        Button(action: onTap) {
+            HStack(spacing: 16) {
+                ProgressView()
+                    .tint(.white)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("バックグラウンドダウンロード中...")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("バックグラウンドダウンロード中...")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
 
-                HStack {
-                    ProgressView(value: downloadQueue.overallProgress)
-                        .progressViewStyle(.linear)
-                        .tint(.appProgressTint)
+                    HStack {
+                        ProgressView(value: downloadQueue.overallProgress)
+                            .progressViewStyle(.linear)
+                            .tint(.appProgressTint)
 
-                    Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
+                        Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
+                    }
                 }
-            }
 
-            Image(systemName: "chevron.up")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            .padding()
+            .background(Color.black.opacity(0.8))
+            .cornerRadius(12)
+            .padding()
+            .shadow(radius: 10)
+            .contentShape(Rectangle())
         }
-        .padding()
-        .background(Color.black.opacity(0.8))
-        .cornerRadius(12)
-        .padding()
-        .shadow(radius: 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            "バックグラウンドダウンロード中、\(downloadQueue.finishedCount)件完了、全\(downloadQueue.totalCount)件"
+        )
+        .accessibilityHint("タップでダウンロードキューを表示")
     }
 }

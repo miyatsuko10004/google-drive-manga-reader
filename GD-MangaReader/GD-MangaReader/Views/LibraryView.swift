@@ -598,10 +598,14 @@ struct LibraryView: View {
         guard !blockIfOffline() else { return }
         // 通常のブラウズ中はcurrentFolderId（今表示しているフォルダ）が常に正しいため優先する。
         // item.parentIdはparents?.firstに由来し、（レガシーの）複数親を持つファイルでは
-        // 表示中のフォルダと一致する保証がない。currentFolderIdがnilになるのは
-        // サーバー検索結果など現在フォルダの文脈がない場合のみで、そのときだけ
-        // アイテム自身の親フォルダIDへフォールバックする
-        guard let folderId = libraryViewModel.currentFolderId ?? item.parentId else { return }
+        // 表示中のフォルダと一致する保証がない。
+        // ただしサーバー検索中の結果はDrive全体から来るため、表示中フォルダとは別の
+        // フォルダに属し得る。その場合はアイテム自身の親フォルダIDを優先しないと
+        // 「この巻以降」が無関係なフォルダを起点に enqueue されてしまう
+        let resolvedFolderId = libraryViewModel.isServerSearchActive
+            ? (item.parentId ?? libraryViewModel.currentFolderId)
+            : (libraryViewModel.currentFolderId ?? item.parentId)
+        guard let folderId = resolvedFolderId else { return }
         Task { @MainActor in
             do {
                 let (tasks, total) = try await downloadQueue.enqueueFrom(
@@ -722,16 +726,31 @@ struct LibraryView: View {
     
     /// ストリーミング閲覧を開始
     private func startStreamingRead(from item: DriveItem) {
-        // 現在のフォルダ内の全画像を取得
-        let images = libraryViewModel.items.filter { $0.isImage }
-        guard !images.isEmpty else { return }
-        
         // アクセストークンをセット（重要: これがないと画像データがダウンロードできない）
         libraryViewModel.driveService.setAccessToken(authViewModel.accessToken)
-        
+
+        // 現在のフォルダ内の全画像を取得
+        let images = libraryViewModel.items.filter { $0.isImage }
+
+        // サーバー検索結果などタップした画像が現在フォルダに存在しない場合、
+        // 現在フォルダの画像一覧からソースを作ると無関係な画像が表示されてしまう
+        // （フォルダに画像がなければ何も起きない）。その場合はその画像1枚のみの
+        // ソースとして開く（openNextImageと同じ形。兄弟画像の取得は行わない）
+        guard images.contains(where: { $0.id == item.id }) else {
+            let source = RemoteComicSource(
+                folderId: item.id,
+                title: item.name,
+                files: [item],
+                driveService: libraryViewModel.driveService,
+                parentId: item.parentId
+            )
+            readingSession = ComicSession(source: source)
+            return
+        }
+
         // タップした画像のインデックスを特定
         let initialIndex = images.firstIndex(where: { $0.id == item.id }) ?? 0
-        
+
         // RemoteComicSourceを作成
         let source = RemoteComicSource(
             folderId: libraryViewModel.currentFolderId ?? "root",
@@ -740,7 +759,7 @@ struct LibraryView: View {
             driveService: libraryViewModel.driveService,
             parentId: libraryViewModel.folderPath.dropLast().last?.id
         )
-        
+
         // 初期ページを設定
         Task {
             await source.saveProgress(page: initialIndex)
@@ -1040,10 +1059,13 @@ struct AlertsAndSheetsModifier: ViewModifier {
         // フォルダ一覧取得の多重実行を防ぐ）
         guard pendingOpenNextDriveItemID != nextItem.id else { return }
 
-        // 要求受付時点でリクエストIDと現在のフォルダIDをスナップショットする
-        // （フォルダ内一覧の取得中にさらに新しい遷移が発生しても影響を受けないようにするため）
+        // 要求受付時点でリクエストIDと親フォルダIDをスナップショットする
+        // （フォルダ内一覧の取得中にさらに新しい遷移が発生しても影響を受けないようにするため）。
+        // 親フォルダIDはアイテム自身のparentIdを優先する: リーダーが検索結果など
+        // 現在表示中とは別のフォルダの巻を開いている場合、currentFolderIdでは
+        // 次巻検出が無関係なフォルダを参照してしまう
         let requestID = nextItem.id
-        let parentId = libraryViewModel.currentFolderId
+        let parentId = nextItem.parentId ?? libraryViewModel.currentFolderId
         pendingOpenNextDriveItemID = requestID
 
         if authViewModel.isOfflineMode {

@@ -490,6 +490,11 @@ final class DownloadQueueManager {
             // 完了を待ってからバックグラウンドタスクを終了する
             Task {
                 await thumbnailTask?.value
+                // await中に新しいタスクが再投入されていたら、このドレイン処理は破棄する
+                // （再投入されたタスクは既存のbackgroundTaskIDを再利用するため、ここで
+                //   終了させると動作中のバックグラウンドタスクを打ち切ってしまう。
+                //   完了フィードバックは新しいドレイン処理が担当する）
+                guard pendingTasks.isEmpty else { return }
                 // バックグラウンド時のみローカル通知を発行する（フォアグラウンドでは
                 // onQueueDrained経由のトーストが担当。判定はNotificationService側で行う）。
                 // 猶予時間が残っているうちに発行できるよう、バックグラウンドタスク終了前に呼ぶ。
@@ -497,6 +502,8 @@ final class DownloadQueueManager {
                 // 走るため、サスペンションポイントで割り込まれる可能性があり、通知の発行完了が
                 // サスペンド前に終わることの厳密な保証はない
                 await NotificationService.shared.postDownloadCompletion(completed: completed, failed: failed)
+                // 通知APIのawait中にも再投入される可能性があるため再検証する
+                guard pendingTasks.isEmpty else { return }
                 endBackgroundTaskIfNeeded()
                 onQueueDrained?(completed, failed)
             }

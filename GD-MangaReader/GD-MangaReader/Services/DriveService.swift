@@ -163,7 +163,10 @@ final class DriveService {
 
         let result = try await executeFileListQuery(query)
 
-        print("🔍 [DriveService] Search '\(userQuery)' found \(result.files?.count ?? 0) files")
+        // プライバシー: ユーザーの検索文字列（非公開Drive内のファイル名等）はログへ出力しない
+        #if DEBUG
+        print("🔍 [DriveService] Search found \(result.files?.count ?? 0) files")
+        #endif
 
         return (makeDriveItems(from: result), result.nextPageToken)
     }
