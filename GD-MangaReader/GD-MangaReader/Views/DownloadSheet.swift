@@ -43,6 +43,10 @@ struct DownloadSheet: View {
     @State private var queueTask: DownloadQueueTask?
     @State private var downloadedComic: LocalComic?
 
+    /// ファイルアイコンの円と中のアイコンサイズ（Dynamic Typeに追従して拡大縮小する）
+    @ScaledMetric(relativeTo: .largeTitle) private var iconCircleSize: CGFloat = 120
+    @ScaledMetric(relativeTo: .largeTitle) private var iconFontSize: CGFloat = 50
+
     private var queueManager: DownloadQueueManager { .shared }
 
     /// 表示すべき完了コミック
@@ -66,13 +70,14 @@ struct DownloadSheet: View {
                 // ファイルアイコン
                 ZStack {
                     Circle()
-                        .fill(Color.orange.opacity(0.2))
-                        .frame(width: 120, height: 120)
+                        .fill(Color.appWarning.opacity(0.2))
+                        .frame(width: iconCircleSize, height: iconCircleSize)
 
                     Image(systemName: target.iconName)
-                        .font(.system(size: 50))
-                        .foregroundColor(.orange)
+                        .font(.system(size: iconFontSize))
+                        .foregroundColor(.appWarning)
                 }
+                .accessibilityHidden(true)
 
                 // ファイル名
                 Text(target.name)
@@ -109,6 +114,14 @@ struct DownloadSheet: View {
             .task {
                 // ダウンロード済み・実行中タスクのチェック
                 checkExistingState()
+                // 未ダウンロードかつ未キューなら即座にダウンロードを開始する
+                // （キュー追加は可逆な追加系操作のため、確認タップを挟まず自動開始する。
+                //   「ダウンロードを中止」ボタンでいつでも取り消せる）。
+                // 失敗/キャンセル済みタスクが残っている場合は自動開始せず、
+                // その状態を表示して再試行/再開はユーザーのタップに委ねる
+                if downloadedComic == nil && queueTask == nil {
+                    startDownload()
+                }
             }
         }
     }
@@ -144,11 +157,11 @@ struct DownloadSheet: View {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 50))
-                            .foregroundColor(.red)
+                            .foregroundColor(.appDestructive)
 
                         Text("エラーが発生しました")
                             .font(.headline)
-                            .foregroundColor(.red)
+                            .foregroundColor(.appDestructive)
 
                         Text(message)
                             .font(.caption)
@@ -181,7 +194,7 @@ struct DownloadSheet: View {
                 VStack(spacing: 8) {
                     ProgressView(value: downloader.extractProgress)
                         .progressViewStyle(.linear)
-                        .tint(.green)
+                        .tint(.appProgressTint)
 
                     Text("解凍中... \(Int(downloader.extractProgress * 100))%")
                         .font(.caption)
@@ -191,7 +204,7 @@ struct DownloadSheet: View {
                 VStack(spacing: 8) {
                     ProgressView(value: downloader.downloadProgress)
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(.appProgressTint)
 
                     Text(downloadStatusText(downloader: downloader))
                         .font(.caption)
@@ -208,11 +221,11 @@ struct DownloadSheet: View {
         VStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 50))
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
             Text("完了しました！")
                 .font(.headline)
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
             if let comic = completedComic {
                 Text("\(comic.pageCount)ページ")

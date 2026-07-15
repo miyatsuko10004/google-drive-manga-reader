@@ -6,14 +6,59 @@
 
 import SwiftUI
 
+/// リーダーから「次の巻」として開く対象
+enum NextVolumeTarget {
+    case local(LocalComic)
+    case drive(DriveItem)
+}
+
+/// 上端Safe Areaインセットの実測値を伝搬するPreferenceKey。
+/// リーダー本体は全画面（.ignoresSafeArea()）で描画するため、その内側では
+/// safeAreaInsetsが取得できない。Safe Areaを無視しないbackgroundプローブから
+/// この値を受け取り、ヘッダーの上端パディングに使う
+private struct SafeAreaTopInsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// 漫画閲覧画面
 struct ReaderView: View {
     let source: any ComicSource
+    /// 「次を読む」時に呼ばれるコールバック。
+    /// 呼び出し側（LibraryView）がreadingSessionを直接差し替えることで、
+    /// fullScreenCoverを閉じずにリーダーの中身だけを次の巻に切り替える
+    let onOpenNext: (NextVolumeTarget) -> Void
     @State private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
-    
-    init(source: any ComicSource) {
+
+    /// 「読了後に自動削除」を初めて有効化する際の確認アラート表示フラグ
+    @State private var showingAutoDeleteConfirmation = false
+
+    /// 自動削除の初回確認を済ませたかどうかのUserDefaultsキー
+    /// （一度確認したら、以降のON/OFF切り替えでは確認を出さない）
+    private static let autoDeleteConfirmedKey = "reader.autoDeleteConfirmed"
+
+    /// タップゾーンの説明オーバーレイを表示済みかどうかのUserDefaultsキー
+    /// （アプリ全体で初回のリーダー起動時に一度だけ表示する）
+    private static let tapZoneHintShownKey = "reader.tapZoneHintShown"
+
+    /// タップゾーン説明オーバーレイの表示フラグ（約3秒 or タップで消える）
+    @State private var showTapZoneHint = false
+
+    /// タップゾーン説明の自動消去タスク（タップによる早期消去・画面離脱時にキャンセルする）
+    @State private var hintDismissTask: Task<Void, Never>?
+
+    /// ヘッダーをステータスバー/ノッチと被らせないための上端Safe Area実測値。
+    /// 外側のGeometryReaderには.ignoresSafeArea()が適用されているため、その
+    /// proxy.safeAreaInsetsは0を返す（実機/シミュレータで確認済み）。そのため
+    /// Safe Areaを無視しないbackgroundプローブで実測した値をここに保持する
+    @State private var safeAreaTopInset: CGFloat = 0
+
+    init(source: any ComicSource, onOpenNext: @escaping (NextVolumeTarget) -> Void = { _ in }) {
         self.source = source
+        self.onOpenNext = onOpenNext
         self._viewModel = State(initialValue: ReaderViewModel(source: source))
     }
     
@@ -33,7 +78,7 @@ struct ReaderView: View {
                 
                 // UIオーバーレイ
                 if viewModel.showUI {
-                    uiOverlay
+                    uiOverlay(topInset: safeAreaTopInset)
                 }
                 
                 // 次の巻サジェスト
@@ -44,14 +89,44 @@ struct ReaderView: View {
                         nextVolumeOverlayForDrive(item: nextDriveItem)
                     }
                 }
+
+                // 初回起動時のみのタップゾーン説明オーバーレイ
+                if showTapZoneHint {
+                    tapZoneHintOverlay(size: geometry.size)
+                }
             }
             .onTapGesture(coordinateSpace: .local) { location in
+                // ヒント表示中のタップはヒントを閉じるだけ（ページ送りしない）
+                if showTapZoneHint {
+                    hintDismissTask?.cancel()
+                    hintDismissTask = nil
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showTapZoneHint = false
+                    }
+                    return
+                }
                 handleTap(at: location, in: geometry.size)
+            }
+            // VoiceOver向け: 視覚的なタップゾーンの代替となるカスタムアクション。
+            // デフォルトアクション（ダブルタップ）はメニューの表示切替に割り当てる
+            .accessibilityAction {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.showUI.toggle()
+                }
+            }
+            .accessibilityAction(named: "次のページ") {
+                viewModel.goToNextPage()
+            }
+            .accessibilityAction(named: "前のページ") {
+                viewModel.goToPreviousPage()
             }
             .onAppear {
                 viewModel.isLandscape = geometry.size.width > geometry.size.height
+                presentTapZoneHintIfNeeded()
             }
             .onDisappear {
+                hintDismissTask?.cancel()
+                hintDismissTask = nil
                 viewModel.cleanup()
             }
             .onChange(of: geometry.size) { _, newSize in
@@ -64,6 +139,21 @@ struct ReaderView: View {
             }
         }
         .ignoresSafeArea()
+        // 上端Safe Areaの実測プローブ。
+        // .ignoresSafeArea()より外側（Safe Areaが消費されていない座標系）に付けることで、
+        // proxy.safeAreaInsets.topが実デバイスの上端インセットを返す
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(
+                        key: SafeAreaTopInsetPreferenceKey.self,
+                        value: proxy.safeAreaInsets.top
+                    )
+            }
+        )
+        .onPreferenceChange(SafeAreaTopInsetPreferenceKey.self) { inset in
+            safeAreaTopInset = inset
+        }
         .statusBarHidden(!viewModel.showUI)
         .focusable()
         .onKeyPress(.leftArrow) {
@@ -77,6 +167,15 @@ struct ReaderView: View {
         .onKeyPress(.space) {
             viewModel.goToNextPage()
             return .handled
+        }
+        .alert("読了後に自動削除", isPresented: $showingAutoDeleteConfirmation) {
+            Button("キャンセル", role: .cancel) {}
+            Button("有効にする") {
+                UserDefaults.standard.set(true, forKey: Self.autoDeleteConfirmedKey)
+                viewModel.autoDeleteAfterRead = true
+            }
+        } message: {
+            Text("読み終えた巻を自動的に削除します。よろしいですか？")
         }
     }
     
@@ -181,10 +280,10 @@ struct ReaderView: View {
             if viewModel.isPreparingNextVolume {
                 VStack(spacing: 8) {
                     ProgressView()
-                        .tint(.orange)
+                        .tint(.readerAccent)
                     Text("次の巻を確認中...")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.readerAccent)
                 }
                 .padding()
                 .background(Color.black.opacity(0.6))
@@ -194,17 +293,81 @@ struct ReaderView: View {
         }
     }
     
+    // MARK: - Tap Zone Hint (First Launch Only)
+
+    /// 初回リーダー起動時にのみ表示するタップゾーンの説明。
+    /// 約3秒後、または画面タップで消える（タップはZStackのonTapGestureが吸収する）
+    private func presentTapZoneHintIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.tapZoneHintShownKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.tapZoneHintShownKey)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showTapZoneHint = true
+        }
+        hintDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // タップによる早期消去や画面離脱でキャンセルされた場合は何もしない
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showTapZoneHint = false
+            }
+        }
+    }
+
+    /// タップゾーン（左25% / 中央50% / 右25%）の視覚的な説明オーバーレイ。
+    /// 左右のラベルはhandleTapの実際の挙動（isRightToLeftで反転）に合わせる
+    private func tapZoneHintOverlay(size: CGSize) -> some View {
+        HStack(spacing: 0) {
+            tapZoneHintLabel(
+                title: viewModel.isRightToLeft ? "次のページ" : "前のページ",
+                icon: "arrow.left"
+            )
+            .frame(width: size.width * 0.25)
+            .frame(maxHeight: .infinity)
+            .background(Color.white.opacity(0.08))
+
+            tapZoneHintLabel(title: "メニュー", icon: "hand.tap")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            tapZoneHintLabel(
+                title: viewModel.isRightToLeft ? "前のページ" : "次のページ",
+                icon: "arrow.right"
+            )
+            .frame(width: size.width * 0.25)
+            .frame(maxHeight: .infinity)
+            .background(Color.white.opacity(0.08))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.6))
+        .transition(.opacity)
+        .accessibilityHidden(true) // VoiceOverにはカスタムアクションで案内済みのため隠す
+    }
+
+    private func tapZoneHintLabel(title: String, icon: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title)
+                .foregroundColor(.white)
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 4)
+    }
+
     // MARK: - UI Overlay
-    
-    private var uiOverlay: some View {
+
+    private func uiOverlay(topInset: CGFloat) -> some View {
         VStack {
             // ヘッダー
             headerBar
-                // ステータスバーと被らないようにTopのSafe Areaを確保
-                .padding(.top, 44) // ノッチ分の概算、またはGeometryReaderで取得推奨だが簡易対応
-            
+                // ステータスバーと被らないようにTopのSafe Area実測値
+                // （backgroundプローブで計測したsafeAreaTopInset）を使う
+                .padding(.top, topInset)
+
             Spacer()
-            
+
             // フッター
             footerBar
         }
@@ -225,6 +388,7 @@ struct ReaderView: View {
                     .foregroundColor(.white)
                     .padding()
             }
+            .accessibilityLabel("閉じる")
             
             Spacer()
             
@@ -317,7 +481,15 @@ struct ReaderView: View {
             Section("一般設定") {
                 Toggle("読了後に自動削除", isOn: Binding(
                     get: { viewModel.autoDeleteAfterRead },
-                    set: { viewModel.autoDeleteAfterRead = $0 }
+                    set: { newValue in
+                        // ファイル削除を伴う設定のため、初回の有効化時のみ確認アラートを挟む
+                        // （確認済みならUserDefaultsのフラグによりそのまま切り替える）
+                        if newValue && !UserDefaults.standard.bool(forKey: Self.autoDeleteConfirmedKey) {
+                            showingAutoDeleteConfirmation = true
+                        } else {
+                            viewModel.autoDeleteAfterRead = newValue
+                        }
+                    }
                 ))
             }
         } label: {
@@ -326,6 +498,7 @@ struct ReaderView: View {
             .foregroundColor(.white)
             .padding()
         }
+        .accessibilityLabel("表示設定")
     }
     
     private var footerBar: some View {
@@ -345,8 +518,10 @@ struct ReaderView: View {
                     in: 0...Double(max(0, source.pageCount - 1)),
                     step: 1
                 )
-                .tint(.orange)
+                .tint(.readerAccent)
                 .environment(\.layoutDirection, viewModel.isRightToLeft ? .rightToLeft : .leftToRight)
+                .accessibilityLabel("ページ")
+                .accessibilityValue("\(viewModel.currentPage + 1) / \(source.pageCount) ページ")
                 
                 Text("\(source.pageCount)")
                     .font(.caption)
@@ -448,25 +623,23 @@ struct ReaderView: View {
         suggestionContent(title: nextComic.title) {
             // 現在の巻の終了処理（自動削除など）
             await viewModel.finalizeCurrentVolume()
-            
-            // 次の巻を開く
-            NotificationCenter.default.post(
-                name: Notification.Name("OpenNextVolume"),
-                object: nextComic
-            )
-            dismiss()
+
+            // 次の巻を開く（カバーは閉じない。LibraryView側でセッションを
+            // 差し替えることでリーダーの中身がそのまま次の巻に切り替わる）
+            onOpenNext(.local(nextComic))
         }
     }
-    
+
     private func nextVolumeOverlayForDrive(item: DriveItem) -> some View {
         suggestionContent(title: item.name) {
+            // フォルダの場合は画像一覧の取得が完了するまで現在の巻が表示された
+            // ままになるため、連打で同じ要求が多重に走らないよう、タップを受け
+            // 付けた時点でサジェストを閉じておく
+            viewModel.showNextVolumeSuggestion = false
+
             // リモートの場合は自動削除なし
-            // 次の巻を開く
-            NotificationCenter.default.post(
-                name: Notification.Name("OpenNextDriveItem"),
-                object: item
-            )
-            dismiss()
+            // 次の巻を開く（取得完了時にLibraryView側でセッションが差し替わる）
+            onOpenNext(.drive(item))
         }
     }
     
@@ -486,7 +659,7 @@ struct ReaderView: View {
                     
                     Text(title)
                         .font(.subheadline)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.readerAccent)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
@@ -513,7 +686,7 @@ struct ReaderView: View {
                             .foregroundColor(.white)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 32)
-                            .background(Color.orange)
+                            .background(Color.readerAccent)
                             .cornerRadius(25)
                     }
                 }
@@ -1140,13 +1313,34 @@ struct AsyncImageView: View {
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
+                    .accessibilityLabel("ページ \(index + 1) / \(source.pageCount)")
             } else if isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .accessibilityLabel("ページ \(index + 1) を読み込み中")
             } else {
-                Image(systemName: "photo")
-                    .font(.largeTitle)
-                    .foregroundColor(.gray)
+                // 読み込み失敗: 再読み込みボタンを提示する
+                VStack(spacing: 16) {
+                    Image(systemName: "photo")
+                        .font(.largeTitle)
+                        .foregroundColor(.gray)
+                        .accessibilityLabel("ページ \(index + 1) の読み込みに失敗しました")
+
+                    Button {
+                        Task {
+                            await loadImage()
+                        }
+                    } label: {
+                        Label("再読み込み", systemImage: "arrow.clockwise")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 16)
+                            .background(Color.white.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
             }
         }
         .task {

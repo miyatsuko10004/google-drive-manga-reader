@@ -20,9 +20,33 @@ final class StorageViewModel {
     /// 読み込み中かどうか
     private(set) var isLoading: Bool = false
     
-    /// エラーメッセージ
+    /// エラーメッセージ（Viewがトースト表示後にclearError()でクリアする）
     private(set) var errorMessage: String?
-    
+
+    // MARK: - Sorting
+
+    /// ダウンロード済みアイテムのソートオプション（デフォルトはサイズの大きい順）
+    enum SortOption: String, CaseIterable, Identifiable {
+        case sizeDesc
+        case nameAsc
+        case dateNewest
+
+        var id: String { rawValue }
+
+        /// UI表示用ラベル
+        var label: String {
+            switch self {
+            case .sizeDesc: return "サイズ順"
+            case .nameAsc: return "名前順"
+            case .dateNewest: return "追加日順"
+            }
+        }
+    }
+
+    var sortOption: SortOption = .sizeDesc {
+        didSet { comics = sortComics(comics) }
+    }
+
     // MARK: - Dependencies
     
     private let storageService = LocalStorageService.shared
@@ -70,19 +94,33 @@ final class StorageViewModel {
                     total += size
                 }
                 
-                // サイズ順にソート
-                let sortedItems = items.sorted { $0.size > $1.size }
                 total += SeriesThumbnailStore.shared.calculateStorageUsage()
-                return (sortedItems, total)
+                return (items, total)
             }.value
-            
-            self.comics = items
+
+            self.comics = sortComics(items)
             self.totalUsage = total
             self.errorMessage = nil
-            
+
         } catch {
             errorMessage = "データの読み込みに失敗しました: \(error.localizedDescription)"
         }
+    }
+
+    /// 現在のソートオプションでアイテムをソートする
+    private func sortComics(_ items: [ComicStorageItem]) -> [ComicStorageItem] {
+        items.sorted {
+            switch sortOption {
+            case .sizeDesc: return $0.size > $1.size
+            case .nameAsc: return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            case .dateNewest: return $0.localComic.downloadedAt > $1.localComic.downloadedAt
+            }
+        }
+    }
+
+    /// エラーメッセージをクリアする（Viewがトースト表示した後に呼ぶ）
+    func clearError() {
+        errorMessage = nil
     }
     
     func deleteComic(_ item: ComicStorageItem) async {

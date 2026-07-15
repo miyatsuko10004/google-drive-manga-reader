@@ -197,17 +197,18 @@ final class DownloadQueueManager {
         let task = DownloadQueueTask(target: target)
         tasks.append(task)
         beginBackgroundTaskIfNeeded()
+        requestNotificationAuthorizationIfNeeded()
         processQueue()
         return task
     }
 
     /// 複数のアーカイブをまとめてキューに追加（ダウンロード済み・重複はスキップ）
-    /// - Returns: 新規に追加した件数
+    /// - Returns: 新規に追加したタスク（呼び出し側の「元に戻す」= `cancelBatch(_:)` に使う）
     @discardableResult
-    func enqueue(items: [DriveItem]) -> Int {
+    func enqueue(items: [DriveItem]) -> [DownloadQueueTask] {
         clearFinishedIfIdle()
 
-        var added = 0
+        var addedTasks: [DownloadQueueTask] = []
         for item in items where item.isArchive {
             if isDownloaded(driveFileId: item.id) { continue }
             if tasks.contains(where: { $0.driveFileId == item.id && !$0.state.isFinished }) { continue }
@@ -215,20 +216,22 @@ final class DownloadQueueManager {
             // 同じファイルの失敗/キャンセル済みタスクが残っていれば、再試行時に重複させず置き換える
             tasks.removeAll { $0.driveFileId == item.id && $0.state.isFinished }
 
-            tasks.append(DownloadQueueTask(target: .file(item)))
-            added += 1
+            let task = DownloadQueueTask(target: .file(item))
+            tasks.append(task)
+            addedTasks.append(task)
         }
 
-        if added > 0 {
+        if !addedTasks.isEmpty {
             beginBackgroundTaskIfNeeded()
+            requestNotificationAuthorizationIfNeeded()
             processQueue()
         }
-        return added
+        return addedTasks
     }
 
     /// フォルダ内の全アーカイブをキューに追加（シリーズ一括ダウンロード）
-    /// - Returns: 新規に追加した件数
-    func enqueueSeries(folder: DriveItem) async throws -> Int {
+    /// - Returns: 新規に追加したタスク
+    func enqueueSeries(folder: DriveItem) async throws -> [DownloadQueueTask] {
         let archives = try await fetchAllArchives(inFolder: folder.id)
         return enqueue(items: archives)
     }
@@ -236,15 +239,15 @@ final class DownloadQueueManager {
     /// フォルダ内の全アーカイブをリモートから再取得し、指定アイテム以降をキューに追加
     /// UI側の表示リストはページング・検索フィルタで一部しか見えていない場合があるため、
     /// 対象を必ず全件取得してから判定する（`enqueueSeries`と同じ方針）
-    /// - Returns: (新規に追加した件数, 対象巻数（ダウンロード済み含む全件）)
-    func enqueueFrom(folderId: String, item: DriveItem) async throws -> (added: Int, total: Int) {
+    /// - Returns: (新規に追加したタスク, 対象巻数（ダウンロード済み含む全件）)
+    func enqueueFrom(folderId: String, item: DriveItem) async throws -> (tasks: [DownloadQueueTask], total: Int) {
         let archives = try await fetchAllArchives(inFolder: folderId)
         guard let index = archives.firstIndex(where: { $0.id == item.id }) else {
-            return (0, 0)
+            return ([], 0)
         }
         let volumes = Array(archives[index...])
-        let added = enqueue(items: volumes)
-        return (added, volumes.count)
+        let addedTasks = enqueue(items: volumes)
+        return (addedTasks, volumes.count)
     }
 
     /// フォルダ内の全アーカイブをページングしながら取得し、名前順にソートして返す
@@ -258,14 +261,14 @@ final class DownloadQueueManager {
 
     /// 全シリーズ（ルート直下のフォルダ）の1巻をキューに追加（試し読み）
     /// ルート直下に直接置かれたアーカイブはどのシリーズにも属さないため対象外
-    /// - Returns: (新規に追加した件数, 見つかったシリーズ数, 1巻が特定できたシリーズ数)
+    /// - Returns: (新規に追加したタスク, 見つかったシリーズ数, 1巻が特定できたシリーズ数)
     ///   candidateCountにより「全巻ダウンロード済み」と「アーカイブが1件も見つからなかった」を区別できる
-    func enqueueTrialVolumes() async throws -> (added: Int, seriesCount: Int, candidateCount: Int) {
-        guard !isTrialEnqueueInProgress else { return (0, 0, 0) }
+    func enqueueTrialVolumes() async throws -> (tasks: [DownloadQueueTask], seriesCount: Int, candidateCount: Int) {
+        guard !isTrialEnqueueInProgress else { return ([], 0, 0) }
         isTrialEnqueueInProgress = true
         defer { isTrialEnqueueInProgress = false }
 
-        guard let driveService else { return (0, 0, 0) }
+        guard let driveService else { return ([], 0, 0) }
 
         // ルート("manga"フォルダ)直下を全件取得する
         // 表示中のリストはページングで一部しか読み込まれていない場合があるため、必ず全件を取得する
@@ -320,8 +323,8 @@ final class DownloadQueueManager {
         firstVolumes.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
         // ダウンロード済み・キュー済みのスキップはenqueue(items:)側で行われる
-        let added = enqueue(items: firstVolumes)
-        return (added, seriesFolders.count, firstVolumes.count)
+        let addedTasks = enqueue(items: firstVolumes)
+        return (addedTasks, seriesFolders.count, firstVolumes.count)
     }
 
     // MARK: - Cancel / Clear
@@ -348,6 +351,23 @@ final class DownloadQueueManager {
         for task in pendingTasks {
             cancel(task)
         }
+    }
+
+    /// バッチ追加の「元に戻す」用: 指定したタスクのうち、まだ終了していないものだけをキャンセルする
+    ///
+    /// 境界の明示: Undoウィンドウ（トースト表示中）のあいだにダウンロードが完了したタスク
+    /// （`.completed`）には一切手を付けない。取得済みのファイルを削除することはなく、
+    /// 「元に戻す」はあくまで未完了分のキャンセルに留める（ファイル削除は破壊的操作であり、
+    /// ストレージ管理などの明示的な削除操作に委ねる）。失敗・キャンセル済みも対象外。
+    /// - Returns: 実際にキャンセルした件数（呼び出し側はこの件数をフィードバックに使う）
+    @discardableResult
+    func cancelBatch(_ batch: [DownloadQueueTask]) -> Int {
+        var cancelledCount = 0
+        for task in batch where !task.state.isFinished {
+            cancel(task)
+            cancelledCount += 1
+        }
+        return cancelledCount
     }
 
     /// 終了済みタスクを一覧から削除
@@ -379,6 +399,15 @@ final class DownloadQueueManager {
     }
 
     // MARK: - Private
+
+    /// 通知許可のリクエストを「初めてダウンロードをキューに入れたとき」に遅延実行する。
+    /// アプリ起動時には出さず、実際にダウンロードするユーザーにだけ許可ダイアログを見せる。
+    /// 許可済み・拒否済みの場合はNotificationService側で何もしない
+    private func requestNotificationAuthorizationIfNeeded() {
+        Task {
+            await NotificationService.shared.requestAuthorizationIfNeeded()
+        }
+    }
 
     /// キューが完全に停止していれば、前バッチの終了済みタスクをクリア
     private func clearFinishedIfIdle() {
@@ -461,6 +490,20 @@ final class DownloadQueueManager {
             // 完了を待ってからバックグラウンドタスクを終了する
             Task {
                 await thumbnailTask?.value
+                // await中に新しいタスクが再投入されていたら、このドレイン処理は破棄する
+                // （再投入されたタスクは既存のbackgroundTaskIDを再利用するため、ここで
+                //   終了させると動作中のバックグラウンドタスクを打ち切ってしまう。
+                //   完了フィードバックは新しいドレイン処理が担当する）
+                guard pendingTasks.isEmpty else { return }
+                // バックグラウンド時のみローカル通知を発行する（フォアグラウンドでは
+                // onQueueDrained経由のトーストが担当。判定はNotificationService側で行う）。
+                // 猶予時間が残っているうちに発行できるよう、バックグラウンドタスク終了前に呼ぶ。
+                // ただしこの順序はベストエフォート: OSの期限切れハンドラは独立したTaskとして
+                // 走るため、サスペンションポイントで割り込まれる可能性があり、通知の発行完了が
+                // サスペンド前に終わることの厳密な保証はない
+                await NotificationService.shared.postDownloadCompletion(completed: completed, failed: failed)
+                // 通知APIのawait中にも再投入される可能性があるため再検証する
+                guard pendingTasks.isEmpty else { return }
                 endBackgroundTaskIfNeeded()
                 onQueueDrained?(completed, failed)
             }

@@ -50,7 +50,7 @@ struct RecentComicsShelfView: View {
                                     if comic.readingProgress > 0 {
                                         ProgressView(value: comic.readingProgress)
                                             .progressViewStyle(.linear)
-                                            .tint(.blue)
+                                            .tint(.appProgressTint)
                                             .background(Color.white.opacity(0.8))
                                             .frame(height: 4)
                                             .clipShape(RoundedRectangle(cornerRadius: 2))

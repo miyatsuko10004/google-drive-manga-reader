@@ -1,13 +1,19 @@
 import SwiftUI
 
+/// トーストのアクションボタン（最大1つ。後続ステップの「元に戻す」等に使う）
+struct ToastAction {
+    let label: String
+    let handler: () -> Void
+}
+
 /// トースト通知のデータ
-struct ToastData: Equatable {
+struct ToastData {
     enum ToastType {
         case success
         case error
         case info
         case warning
-        
+
         var icon: String {
             switch self {
             case .success: return "checkmark.circle.fill"
@@ -16,100 +22,74 @@ struct ToastData: Equatable {
             case .warning: return "exclamationmark.triangle.fill"
             }
         }
-        
+
         var color: Color {
             switch self {
-            case .success: return .green
-            case .error: return .red
-            case .info: return .blue
-            case .warning: return .orange
+            case .success: return .appSuccess
+            case .error: return .appDestructive
+            case .info: return .accentColor
+            case .warning: return .appWarning
             }
         }
     }
-    
+
     let title: String
     let message: String
     let type: ToastType
+    /// 任意のアクション（最大1つ）。実行するとトーストは閉じる
+    var action: ToastAction? = nil
 }
 
-/// トースト通知を表示するビュー
+/// トースト通知のカードビュー。
+/// 表示タイミング（3秒自動消去・置き換え）は StatusCenter が管理し、
+/// このビューはカードの見た目とタップ/アクションによる消去のみを担う。
 struct ToastView: View {
     let data: ToastData
     let onDismiss: () -> Void
-    @State private var dismissTask: Task<Void, Never>? = nil
-    
+
     var body: some View {
-        VStack {
+        HStack(spacing: 12) {
+            Image(systemName: data.type.icon)
+                .foregroundColor(data.type.color)
+                .font(.title2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(data.title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                Text(data.message)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
             Spacer()
-            
-            HStack(spacing: 12) {
-                Image(systemName: data.type.icon)
-                    .foregroundColor(data.type.color)
-                    .font(.title2)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(data.title)
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
-                    Text(data.message)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-            }
-            .padding()
-            .background(Color(.systemBackground))
-            .cornerRadius(12)
-            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-            .padding(.horizontal)
-            .padding(.bottom, 20)
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .onAppear {
-            dismissTask?.cancel()
-            dismissTask = Task {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
+
+            if let action = data.action {
+                Button {
+                    // 先に自トーストを閉じてからアクションを実行する。
+                    // ハンドラーが後続トースト（例: 「元に戻す」の結果報告）を表示するケースで、
+                    // 後から呼ばれるdismissが新しいトーストを消してしまわないようにするため
                     onDismiss()
+                    action.handler()
+                } label: {
+                    Text(action.label)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                 }
             }
         }
-        .onDisappear {
-            dismissTask?.cancel()
-            dismissTask = nil
-        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+        .padding(.horizontal)
+        .contentShape(Rectangle())
+        // VoiceOverではカード全体を1要素として読み上げる
+        // （内包するアクションボタンはカスタムアクションに昇格する）
+        .accessibilityElement(children: .combine)
         .onTapGesture {
-            dismissTask?.cancel()
             onDismiss()
         }
-    }
-}
-
-/// トースト表示用モディファイア
-struct ToastModifier: ViewModifier {
-    @Binding var toast: ToastData?
-    
-    func body(content: Content) -> some View {
-        ZStack {
-            content
-            
-            if let data = toast {
-                ToastView(data: data) {
-                    withAnimation {
-                        toast = nil
-                    }
-                }
-            }
-        }
-    }
-}
-
-extension View {
-    /// トースト通知を表示する
-    func toastView(toast: Binding<ToastData?>) -> some View {
-        self.modifier(ToastModifier(toast: toast))
     }
 }

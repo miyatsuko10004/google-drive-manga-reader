@@ -4,23 +4,18 @@
 // Google Drive内のファイルブラウザ画面
 
 import SwiftUI
+import UIKit
 import Kingfisher
 
 /// Driveファイルブラウザ画面
 struct LibraryView: View {
     @Environment(AuthViewModel.self) private var authViewModel
+    @Environment(StatusCenter.self) private var statusCenter
     @State private var libraryViewModel = LibraryViewModel()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
-    @State private var showingBulkDownloadConfirmation = false
-    @State private var selectedFolderForBulk: DriveItem?
-    @State private var showingCascadeDownloadConfirmation = false
-    @State private var selectedItemForCascade: DriveItem?
-    @State private var showingDownloadQueue = false
-    @State private var showingTrialDownloadConfirmation = false
     @State private var localRefreshTrigger = 0
-    @State private var toast: ToastData?
     @State private var loadTask: Task<Void, Never>?
 
     private var downloadQueue: DownloadQueueManager { .shared }
@@ -52,16 +47,9 @@ struct LibraryView: View {
                 .ignoresSafeArea()
             
             contentLayer
-
-            // ダウンロードキュープログレスバナー
-            if downloadQueue.isActive {
-                VStack {
-                    Spacer()
-                    downloadQueueBanner
-                }
-            }
+            // ダウンロードキュープログレスバナーとトーストはルートの
+            // .statusCenterOverlay()（StatusCenterOverlay.swift）が表示する
         }
-        .toastView(toast: $toast)
         .navigationTitle(libraryViewModel.currentFolderName)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -90,18 +78,21 @@ struct LibraryView: View {
             }
             downloadQueue.onQueueDrained = { completed, failed in
                 guard completed + failed > 0 else { return }
+                // 非アクティブ時はDownloadQueueManagerが発行するローカル通知が担当するため、
+                // トースト（＋ハプティクス）はフォアグラウンドでのみ表示する（二重フィードバック防止）
+                guard UIApplication.shared.applicationState == .active else { return }
                 if failed == 0 {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "ダウンロード完了",
                         message: "\(completed)件のダウンロードが完了しました",
                         type: .success
-                    )
+                    ))
                 } else {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "ダウンロード完了 (\(failed)件失敗)",
                         message: "\(completed)件完了、\(failed)件失敗しました",
                         type: .error
-                    )
+                    ))
                 }
             }
             await libraryViewModel.loadFiles()
@@ -125,15 +116,8 @@ struct LibraryView: View {
         }
         .modifier(AlertsAndSheetsModifier(
             showingSignOutAlert: $showingSignOutAlert,
-            showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
             selectedItem: $selectedItem,
-            selectedFolderForBulk: $selectedFolderForBulk,
-            showingCascadeDownloadConfirmation: $showingCascadeDownloadConfirmation,
-            selectedItemForCascade: $selectedItemForCascade,
-            showingTrialDownloadConfirmation: $showingTrialDownloadConfirmation,
-            showingDownloadQueue: $showingDownloadQueue,
             readingSession: $readingSession,
-            toast: $toast,
             authViewModel: authViewModel,
             libraryViewModel: libraryViewModel
         ))
@@ -142,9 +126,16 @@ struct LibraryView: View {
     @ViewBuilder
     private var contentLayer: some View {
         VStack(spacing: 0) {
-            offlineHeaderView
-            
-            if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
+            if authViewModel.isOfflineMode {
+                offlineBannerView
+            }
+
+            // サーバー検索の状態を最優先で表示する。空のフォルダやロードエラーの状態でも
+            // 検索フィールドは操作できるため、ここで先に分岐しないと「検索中...」や
+            // 検索結果が永久に表示されない（emptyView/errorViewに遮られてしまう）
+            if libraryViewModel.isSearching || libraryViewModel.isServerSearchActive {
+                fileListContent
+            } else if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
                 shimmerLoadingView
             } else if let error = libraryViewModel.errorMessage {
                 errorView(message: error)
@@ -160,26 +151,98 @@ struct LibraryView: View {
     // MARK: - Subviews
     
     /// ファイル一覧コンテンツ
+    /// ソート・表示モードのコントロールバーはpinnedViewsのセクションヘッダーとして配置する。
+    /// これによりパンくずとアイテム一覧の間という自然な位置に置きつつ、長いリストを
+    /// スクロール中でも画面上部に固定されて操作できる（safeAreaInsetだとおすすめシェルフや
+    /// パンくずより上に来てしまうため、この方式を採用）
     @ViewBuilder
     private var fileListContent: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 recommendationSection
-                
+
                 // パンくずリスト
                 if !libraryViewModel.folderPath.isEmpty {
                     breadcrumbView
                 }
-                
-                itemsSection
-                
-                // さらに読み込み
-                if libraryViewModel.hasMoreItems {
-                    autoLoadMoreView
+
+                Section {
+                    if libraryViewModel.isSearching {
+                        // サーバーサイド検索の実行中表示
+                        searchingView
+                    } else if libraryViewModel.isServerSearchActive && libraryViewModel.displayItems.isEmpty {
+                        // サーバー検索の結果が0件
+                        searchEmptyView
+                    } else {
+                        itemsSection
+
+                        // さらに読み込み（サーバー検索の表示中はフォルダのページネーションを行わない）
+                        if !libraryViewModel.isServerSearchActive && libraryViewModel.hasMoreItems {
+                            autoLoadMoreView
+                        }
+                    }
+                } header: {
+                    listControlBar
                 }
             }
             .padding()
         }
+    }
+
+    /// ソート・表示モードのコントロールバー
+    private var listControlBar: some View {
+        HStack {
+            // ソート選択（現在のソート順をラベルに表示するMenu）
+            Menu {
+                Picker("並び替え", selection: $libraryViewModel.sortOption) {
+                    ForEach(LibraryViewModel.SortOption.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                    Text(libraryViewModel.sortOption.label)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                }
+                .foregroundColor(.secondary)
+                // タップ領域を確保する（見た目はcaptionのまま）
+                .frame(minHeight: 36)
+                .contentShape(Rectangle())
+                // VoiceOverでは1要素として「並び替え: 現在のソート順」と読み上げる
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("並び替え: \(libraryViewModel.sortOption.label)")
+            }
+
+            Spacer()
+
+            // 表示モード切り替え（2状態のトグル。アイコンは「押すと切り替わる先」を示す）
+            Button {
+                withAnimation {
+                    libraryViewModel.viewMode = (libraryViewModel.viewMode == .grid) ? .list : .grid
+                }
+            } label: {
+                let nextMode: LibraryViewModel.ViewMode =
+                    (libraryViewModel.viewMode == .grid) ? .list : .grid
+                Image(systemName: nextMode.icon)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(
+                libraryViewModel.viewMode == .grid ? "リスト表示に切り替え" : "グリッド表示に切り替え"
+            )
+        }
+        .frame(height: 36)
+        // ピン留め時に下をスクロールするセルを隠すため、画面背景と同じ色を敷く
+        .background(Color(.systemGroupedBackground))
     }
     
     /// おすすめセクション
@@ -259,6 +322,24 @@ struct LibraryView: View {
         }
     }
     
+    /// サーバーサイド検索の実行中表示
+    private var searchingView: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text("検索中...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+    }
+
+    /// サーバーサイド検索の結果が0件だった場合の表示
+    private var searchEmptyView: some View {
+        ContentUnavailableView.search(text: libraryViewModel.searchText)
+            .padding(.vertical, 24)
+    }
+
     /// さらに読み込みトリガー
     private var autoLoadMoreView: some View {
         Color.clear
@@ -270,58 +351,41 @@ struct LibraryView: View {
             }
     }
     
-    /// オフライン制御ヘッダー（インジケータとトグルスイッチ）
-    private var offlineHeaderView: some View {
-        VStack(spacing: 0) {
-            if authViewModel.isOfflineMode {
-                HStack(spacing: 8) {
-                    Image(systemName: "wifi.slash")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                    Text("オフラインモード")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text("ダウンロード済みのみ表示")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background(Color.orange)
-                .transition(.move(edge: .top).combined(with: .opacity))
+    /// オフラインモードバナー（オフライン時のみ表示）
+    /// 「オンラインに戻す」ボタンで、どの画面階層からでもワンタップで復帰できる
+    private var offlineBannerView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.subheadline)
+                .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("オフラインモード")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Text("ダウンロード済みのみ表示")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.8))
             }
-            
-            HStack {
-                Label {
-                    Text("オフラインモード")
-                        .font(.body)
-                        .fontWeight(.medium)
-                } icon: {
-                    Image(systemName: authViewModel.isOfflineMode ? "wifi.slash" : "wifi")
-                        .foregroundColor(authViewModel.isOfflineMode ? .orange : .blue)
+            Spacer()
+            Button {
+                withAnimation {
+                    authViewModel.isOfflineMode = false
                 }
-                
-                Spacer()
-                
-                Toggle("", isOn: Binding(
-                    get: { authViewModel.isOfflineMode },
-                    set: { newValue in
-                        withAnimation {
-                            authViewModel.isOfflineMode = newValue
-                        }
-                    }
-                ))
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: .orange))
+            } label: {
+                Text("オンラインに戻す")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.white.opacity(0.25)))
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 16)
-            .background(Color(.secondarySystemGroupedBackground))
-            
-            Divider()
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .background(Color.appWarning)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
     
     /// スケルトンUI（Shimmer）
@@ -374,46 +438,6 @@ struct LibraryView: View {
         }
     }
     
-    /// ダウンロードキューバナー（タップで一覧表示）
-    private var downloadQueueBanner: some View {
-        HStack(spacing: 16) {
-            ProgressView()
-                .tint(.white)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("バックグラウンドダウンロード中...")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-
-                HStack {
-                    ProgressView(value: downloadQueue.overallProgress)
-                        .progressViewStyle(.linear)
-                        .tint(.green)
-
-                    Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                }
-            }
-
-            Image(systemName: "chevron.up")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
-        }
-        .padding()
-        .background(Color.black.opacity(0.8))
-        .cornerRadius(12)
-        .padding()
-        .shadow(radius: 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            showingDownloadQueue = true
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(), value: downloadQueue.isActive)
-    }
-    
     /// ツールバー
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -424,28 +448,27 @@ struct LibraryView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                 }
+                .accessibilityLabel("前のフォルダに戻る")
             }
         }
         
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                // 表示切り替え
-                Picker("表示モード", selection: $libraryViewModel.viewMode) {
-                    ForEach(LibraryViewModel.ViewMode.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon)
-                            .tag(mode)
+                // オフラインモード切り替え
+                // （常設のトグル行は廃止し、メニュー内トグル＋オフライン時のバナーに集約）
+                Toggle(isOn: Binding(
+                    get: { authViewModel.isOfflineMode },
+                    set: { newValue in
+                        withAnimation {
+                            authViewModel.isOfflineMode = newValue
+                        }
                     }
+                )) {
+                    Label("オフラインモード", systemImage: "wifi.slash")
                 }
-                
-                // 並び替えオプション
-                Picker("並び替え", selection: $libraryViewModel.sortOption) {
-                    ForEach(LibraryViewModel.SortOption.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                
+
                 Divider()
-                
+
                 // ユーザー情報
                 Section {
                     Text(authViewModel.userName)
@@ -464,9 +487,9 @@ struct LibraryView: View {
                     }
                 }
 
-                // ダウンロード一覧
+                // ダウンロード一覧（シートはルートの.statusCenterOverlay()が表示する）
                 Button {
-                    showingDownloadQueue = true
+                    statusCenter.showDownloadQueue()
                 } label: {
                     Label("ダウンロード", systemImage: "arrow.down.circle")
                 }
@@ -489,6 +512,7 @@ struct LibraryView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("メニュー")
         }
     }
     
@@ -497,55 +521,172 @@ struct LibraryView: View {
     /// オフラインモード時にダウンロード操作をブロックし、案内トーストを表示
     private func blockIfOffline() -> Bool {
         guard authViewModel.isOfflineMode else { return false }
-        toast = ToastData(
+        statusCenter.show(ToastData(
             title: "オフラインモード",
             message: "オフライン中はダウンロードできません。",
             type: .error
-        )
+        ))
         return true
     }
 
-    /// フォルダ長押し: シリーズ一括ダウンロードの確認
-    private func handleBulkDownload(_ folder: DriveItem) {
-        guard !blockIfOffline() else { return }
-        selectedFolderForBulk = folder
-        showingBulkDownloadConfirmation = true
+    /// キュー追加の完了を「元に戻す」アクション付きトーストで通知する。
+    /// キュー追加は可逆な追加系操作のため確認ダイアログは出さず、即実行＋Undoで取り消せるようにする
+    /// （Undoの猶予はトーストの表示時間＝StatusCenterのdismissInterval）。
+    /// 「元に戻す」は未完了のタスクのみキャンセルし（完了済みファイルは消さない）、
+    /// 実際にキャンセルできた件数をフォローアップトーストで報告する。
+    private func showUndoableEnqueueToast(message: String, tasks: [DownloadQueueTask]) {
+        let statusCenter = self.statusCenter
+        statusCenter.show(ToastData(
+            title: "ダウンロード開始",
+            message: message,
+            type: .info,
+            action: ToastAction(label: "元に戻す") {
+                let cancelled = DownloadQueueManager.shared.cancelBatch(tasks)
+                statusCenter.show(ToastData(
+                    title: "ダウンロード",
+                    message: "\(cancelled)件キャンセルしました",
+                    type: .info
+                ))
+            }
+        ))
     }
 
-    /// 巻の長押し: この巻のみダウンロード（即キュー追加）
+    /// フォルダ長押し: シリーズ一括ダウンロード（即実行＋Undoトースト）
+    private func handleBulkDownload(_ folder: DriveItem) {
+        guard !blockIfOffline() else { return }
+        Task { @MainActor in
+            do {
+                let tasks = try await downloadQueue.enqueueSeries(folder: folder)
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(folder.name) の\(tasks.count)件をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
+    }
+
+    /// 巻の長押し: この巻のみダウンロード（即キュー追加＋Undoトースト）
     private func handleDownloadSingle(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
         // 既にキュー中の場合はenqueueが既存タスクを返すため、事前にチェックして
         // 「追加しました」という誤解を招くトーストが出ないようにする
         let alreadyQueued = downloadQueue.isInQueue(driveFileId: item.id)
-        if downloadQueue.enqueue(.file(item)) != nil && !alreadyQueued {
-            toast = ToastData(
-                title: "ダウンロード開始",
+        if let task = downloadQueue.enqueue(.file(item)), !alreadyQueued {
+            showUndoableEnqueueToast(
                 message: "\(item.name) をキューに追加しました",
-                type: .info
+                tasks: [task]
             )
         }
     }
 
-    /// 巻の長押し: この巻以降をダウンロードの確認
+    /// 巻の長押し: この巻以降をダウンロード（即実行＋Undoトースト）
     private func handleDownloadFrom(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
-        selectedItemForCascade = item
-        showingCascadeDownloadConfirmation = true
+        // 通常のブラウズ中はcurrentFolderId（今表示しているフォルダ）が常に正しいため優先する。
+        // item.parentIdはparents?.firstに由来し、（レガシーの）複数親を持つファイルでは
+        // 表示中のフォルダと一致する保証がない。
+        // ただしサーバー検索中の結果はDrive全体から来るため、表示中フォルダとは別の
+        // フォルダに属し得る。その場合はアイテム自身の親フォルダIDを優先しないと
+        // 「この巻以降」が無関係なフォルダを起点に enqueue されてしまう
+        let resolvedFolderId = libraryViewModel.isServerSearchActive
+            ? (item.parentId ?? libraryViewModel.currentFolderId)
+            : (libraryViewModel.currentFolderId ?? item.parentId)
+        guard let folderId = resolvedFolderId else { return }
+        Task { @MainActor in
+            do {
+                let (tasks, total) = try await downloadQueue.enqueueFrom(
+                    folderId: folderId,
+                    item: item
+                )
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(item.name)以降の\(tasks.count)件をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else if total > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード失敗",
+                        message: "対象の巻が見つかりませんでした",
+                        type: .error
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
     }
 
-    /// メニュー: 試し読み（全シリーズの1巻をダウンロード）の確認
+    /// メニュー: 試し読み（全シリーズの1巻をダウンロード、即実行＋Undoトースト）
     private func handleTrialDownload() {
         guard !blockIfOffline() else { return }
         guard !downloadQueue.isTrialEnqueueInProgress else {
-            toast = ToastData(
+            statusCenter.show(ToastData(
                 title: "試し読みダウンロード",
                 message: "現在処理中です。しばらくお待ちください。",
                 type: .info
-            )
+            ))
             return
         }
-        showingTrialDownloadConfirmation = true
+        Task { @MainActor in
+            do {
+                let (tasks, seriesCount, candidateCount) =
+                    try await downloadQueue.enqueueTrialVolumes()
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(seriesCount)シリーズ中\(tasks.count)件の1巻をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else if candidateCount > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                } else if seriesCount > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "対象のアーカイブが見つかりませんでした",
+                        type: .error
+                    ))
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "シリーズフォルダが見つかりませんでした",
+                        type: .info
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
     }
 
     private func handleItemTap(_ item: DriveItem) {
@@ -560,11 +701,11 @@ struct LibraryView: View {
             } else {
                 // 未ダウンロード → ダウンロードシートを表示
                 if authViewModel.isOfflineMode {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "オフラインモード",
                         message: "この漫画はオフラインでは閲覧できません。",
                         type: .error
-                    )
+                    ))
                 } else {
                     selectedItem = item
                 }
@@ -572,11 +713,11 @@ struct LibraryView: View {
         } else if item.isImage {
             // 画像ファイルはストリーミング閲覧開始
             if authViewModel.isOfflineMode {
-                toast = ToastData(
+                statusCenter.show(ToastData(
                     title: "オフラインモード",
                     message: "この漫画はオフラインでは閲覧できません。",
                     type: .error
-                )
+                ))
             } else {
                 startStreamingRead(from: item)
             }
@@ -585,16 +726,31 @@ struct LibraryView: View {
     
     /// ストリーミング閲覧を開始
     private func startStreamingRead(from item: DriveItem) {
-        // 現在のフォルダ内の全画像を取得
-        let images = libraryViewModel.items.filter { $0.isImage }
-        guard !images.isEmpty else { return }
-        
         // アクセストークンをセット（重要: これがないと画像データがダウンロードできない）
         libraryViewModel.driveService.setAccessToken(authViewModel.accessToken)
-        
+
+        // 現在のフォルダ内の全画像を取得
+        let images = libraryViewModel.items.filter { $0.isImage }
+
+        // サーバー検索結果などタップした画像が現在フォルダに存在しない場合、
+        // 現在フォルダの画像一覧からソースを作ると無関係な画像が表示されてしまう
+        // （フォルダに画像がなければ何も起きない）。その場合はその画像1枚のみの
+        // ソースとして開く（openNextImageと同じ形。兄弟画像の取得は行わない）
+        guard images.contains(where: { $0.id == item.id }) else {
+            let source = RemoteComicSource(
+                folderId: item.id,
+                title: item.name,
+                files: [item],
+                driveService: libraryViewModel.driveService,
+                parentId: item.parentId
+            )
+            readingSession = ComicSession(source: source)
+            return
+        }
+
         // タップした画像のインデックスを特定
         let initialIndex = images.firstIndex(where: { $0.id == item.id }) ?? 0
-        
+
         // RemoteComicSourceを作成
         let source = RemoteComicSource(
             folderId: libraryViewModel.currentFolderId ?? "root",
@@ -603,7 +759,7 @@ struct LibraryView: View {
             driveService: libraryViewModel.driveService,
             parentId: libraryViewModel.folderPath.dropLast().last?.id
         )
-        
+
         // 初期ページを設定
         Task {
             await source.saveProgress(page: initialIndex)
@@ -646,7 +802,7 @@ struct DriveItemGridCell: View {
                             Spacer()
                             ProgressView(value: readingProgress)
                                 .progressViewStyle(.linear)
-                                .tint(.blue)
+                                .tint(.appProgressTint)
                                 .background(Color.white.opacity(0.8))
                         }
                     }
@@ -656,15 +812,17 @@ struct DriveItemGridCell: View {
                 .overlay(alignment: .topTrailing) {
                     if isBulkDownloading {
                         ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                             .background(Circle().fill(.white).frame(width: 24, height: 24).shadow(radius: 2))
                             .offset(x: 4, y: -4)
+                            .accessibilityLabel("ダウンロード中")
                     } else if isDownloaded {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
-                            .foregroundColor(.green)
+                            .foregroundColor(.appDownloadedBadge)
                             .background(Circle().fill(.white).frame(width: 18, height: 18))
                             .offset(x: 4, y: -4)
+                            .accessibilityLabel("ダウンロード済み")
                     }
                 }
 
@@ -720,9 +878,9 @@ struct DriveItemGridCell: View {
 
     private var iconColor: Color {
         if item.isFolder {
-            return .blue
+            return .accentColor
         } else if item.isArchive {
-            return .orange
+            return .appWarning
         } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
             return .purple
         }
@@ -774,15 +932,17 @@ struct DriveItemListRow: View {
                 if isBulkDownloading {
                     ProgressView()
                         .scaleEffect(0.6)
-                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .progressViewStyle(CircularProgressViewStyle(tint: .appProgressTint))
                         .background(Circle().fill(.white).frame(width: 16, height: 16).shadow(radius: 1))
                         .offset(x: 2, y: -2)
+                        .accessibilityLabel("ダウンロード中")
                 } else if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(.appDownloadedBadge)
                         .background(Circle().fill(.white).frame(width: 12, height: 12))
                         .offset(x: 2, y: -2)
+                        .accessibilityLabel("ダウンロード済み")
                 }
             }
             
@@ -807,7 +967,7 @@ struct DriveItemListRow: View {
                 if isDownloaded && readingProgress > 0 {
                     ProgressView(value: readingProgress)
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(.appProgressTint)
                         .frame(height: 4)
                         .padding(.top, 2)
                         .padding(.bottom, 2)
@@ -827,10 +987,11 @@ struct DriveItemListRow: View {
             
             Spacer()
             
-            // 矢印
+            // 矢印（装飾のためVoiceOverからは隠す）
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .accessibilityHidden(true)
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
@@ -839,9 +1000,9 @@ struct DriveItemListRow: View {
     
     private var iconColor: Color {
         if item.isFolder {
-            return .blue
+            return .accentColor
         } else if item.isArchive {
-            return .orange
+            return .appWarning
         } else if Config.SupportedFormats.imageExtensions.contains(item.fileExtension.lowercased()) {
             return .purple
         }
@@ -852,55 +1013,73 @@ struct DriveItemListRow: View {
 #Preview {
     LibraryView()
         .environment(AuthViewModel())
+        .environment(StatusCenter.shared)
 }
 
 // MARK: - View Modifiers
 
 struct AlertsAndSheetsModifier: ViewModifier {
     @Binding var showingSignOutAlert: Bool
-    @Binding var showingBulkDownloadConfirmation: Bool
     @Binding var selectedItem: DriveItem?
-    @Binding var selectedFolderForBulk: DriveItem?
-    @Binding var showingCascadeDownloadConfirmation: Bool
-    @Binding var selectedItemForCascade: DriveItem?
-    @Binding var showingTrialDownloadConfirmation: Bool
-    @Binding var showingDownloadQueue: Bool
     @Binding var readingSession: LibraryView.ComicSession?
-    @Binding var toast: ToastData?
+
+    @Environment(StatusCenter.self) private var statusCenter
 
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
 
-    /// 「次のDriveアイテムを開く」処理の最新リクエストを追跡するトークン
-    /// 0.6秒の遅延やフォルダ内一覧取得中に別の遷移リクエストが割り込んだ場合、
-    /// 古いリクエストがreadingSessionを上書きしてしまうのを防ぐために使う
+    /// 「次のDriveアイテムを開く」処理で現在受理中の（進行中の）リクエストのアイテムID。
+    /// 非nilは「このIDのリクエストが進行中」を意味し、完了・失敗・割り込みなどの
+    /// 終端に達したら必ずnilに戻す。用途は2つ:
+    /// - フォルダ内一覧取得（非同期）中に別の遷移リクエストが割り込んだ場合、
+    ///   古いリクエストがreadingSessionを上書きしてしまうのを防ぐ
+    /// - 同じアイテムへのリクエストの多重実行（ボタン連打）を防ぐ
     @State private var pendingOpenNextDriveItemID: String?
 
-    /// リーダーからの「次のDriveアイテムを開く」通知を処理する
+    /// リーダーからの「次の巻を開く」要求を処理する。
+    /// fullScreenCoverは閉じず、readingSessionを直接差し替える。
+    /// （`.id(session.id)` により ReaderView と ReaderViewModel は作り直されるため、
+    ///   カバーを一度閉じて再表示する必要はなく、黒画面のギャップが発生しない）
+    private func handleOpenNext(_ target: NextVolumeTarget) {
+        switch target {
+        case .local(var nextComic):
+            // 進行中のDriveフォルダ取得があれば、この新しい要求で無効化する
+            pendingOpenNextDriveItemID = nil
+            // 次の巻は1ページ目から表示する
+            nextComic.lastReadPage = 0
+            readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
+        case .drive(let nextItem):
+            handleOpenNextDriveItem(nextItem)
+        }
+    }
+
+    /// リーダーからの「次のDriveアイテムを開く」要求を処理する
     private func handleOpenNextDriveItem(_ nextItem: DriveItem) {
-        // 通知受信時点でリクエストIDと現在のフォルダIDをスナップショットする
-        // （遅延中にフォルダ移動やさらに新しい遷移が発生しても影響を受けないようにするため）
+        // 同じアイテムへの要求が既に進行中なら無視する（「次を読む」連打での
+        // フォルダ一覧取得の多重実行を防ぐ）
+        guard pendingOpenNextDriveItemID != nextItem.id else { return }
+
+        // 要求受付時点でリクエストIDと親フォルダIDをスナップショットする
+        // （フォルダ内一覧の取得中にさらに新しい遷移が発生しても影響を受けないようにするため）。
+        // 親フォルダIDはアイテム自身のparentIdを優先する: リーダーが検索結果など
+        // 現在表示中とは別のフォルダの巻を開いている場合、currentFolderIdでは
+        // 次巻検出が無関係なフォルダを参照してしまう
         let requestID = nextItem.id
-        let parentId = libraryViewModel.currentFolderId
+        let parentId = nextItem.parentId ?? libraryViewModel.currentFolderId
         pendingOpenNextDriveItemID = requestID
 
-        // 現在のセッションを閉じる
-        readingSession = nil
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // この間に別のリクエストが割り込んでいたら何もしない
-            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
-
-            if authViewModel.isOfflineMode {
-                openNextDriveItemOffline(nextItem)
-            } else {
-                openNextDriveItemOnline(nextItem, requestID: requestID, parentId: parentId)
-            }
+        if authViewModel.isOfflineMode {
+            openNextDriveItemOffline(nextItem)
+        } else {
+            openNextDriveItemOnline(nextItem, requestID: requestID, parentId: parentId)
         }
     }
 
     /// オフラインモード時: ダウンロード済みアーカイブのみ開ける
     private func openNextDriveItemOffline(_ nextItem: DriveItem) {
+        // 同期的に完結するのでリクエストはここで終端に達する
+        pendingOpenNextDriveItemID = nil
+
         if nextItem.isArchive,
            var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
            existingComic.status == .completed {
@@ -908,12 +1087,15 @@ struct AlertsAndSheetsModifier: ViewModifier {
             existingComic.lastReadPage = 0
             readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
         } else {
-            // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可
-            toast = ToastData(
+            // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可。
+            // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+            // カバーを閉じてから出す（この順序を維持すること）
+            readingSession = nil
+            statusCenter.show(ToastData(
                 title: "オフラインモード",
                 message: "この漫画はオフラインでは閲覧できません。",
                 type: .error
-            )
+            ))
         }
     }
 
@@ -932,6 +1114,7 @@ struct AlertsAndSheetsModifier: ViewModifier {
     private func openNextFolder(_ nextItem: DriveItem, requestID: String, parentId: String?) {
         // フォルダ内の画像一覧を取得してからソースを構築する
         // （空のfilesを渡すとpageCount=0のまま固定されてしまうため）
+        // 取得が終わるまでは現在の巻を表示したままにし、完了時にセッションを差し替える
         Task { @MainActor in
             var allItems: [DriveItem] = []
             var token: String?
@@ -945,26 +1128,45 @@ struct AlertsAndSheetsModifier: ViewModifier {
                     token = result.nextPageToken
                 } while token != nil
             } catch {
-                toast = ToastData(
+                // 取得中に別の遷移リクエストが割り込んでいた場合は何もしない
+                guard pendingOpenNextDriveItemID == requestID else { return }
+                // ここでリクエストは終端に達する
+                pendingOpenNextDriveItemID = nil
+                // 取得中にユーザーがリーダーを手動で閉じていた場合は、
+                // もう関心のないエラートーストを出さない
+                guard readingSession != nil else { return }
+                // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+                // カバーを閉じてから出す（この順序を維持すること）
+                readingSession = nil
+                statusCenter.show(ToastData(
                     title: "読み込み失敗",
                     message: error.localizedDescription,
                     type: .error
-                )
-                return
-            }
-
-            let images = allItems.filter { $0.isImage }
-            guard !images.isEmpty else {
-                toast = ToastData(
-                    title: "ダウンロード",
-                    message: "この巻には画像が含まれていません",
-                    type: .error
-                )
+                ))
                 return
             }
 
             // 取得中に別の遷移リクエストが割り込んでいた場合は、それを上書きしない
-            guard pendingOpenNextDriveItemID == requestID, readingSession == nil else { return }
+            guard pendingOpenNextDriveItemID == requestID else { return }
+            // ここでリクエストは終端に達する（以降は成功/空フォルダのいずれか）
+            pendingOpenNextDriveItemID = nil
+            // 取得中にユーザーがリーダーを手動で閉じていた場合（readingSession == nil）、
+            // このリクエストはもう無効。ここで開き直すと閉じたはずのリーダーが
+            // 勝手に復活してしまうため何もしない
+            guard readingSession != nil else { return }
+
+            let images = allItems.filter { $0.isImage }
+            guard !images.isEmpty else {
+                // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+                // カバーを閉じてから出す（この順序を維持すること）
+                readingSession = nil
+                statusCenter.show(ToastData(
+                    title: "ダウンロード",
+                    message: "この巻には画像が含まれていません",
+                    type: .error
+                ))
+                return
+            }
 
             let source = RemoteComicSource(
                 folderId: nextItem.id,
@@ -979,6 +1181,9 @@ struct AlertsAndSheetsModifier: ViewModifier {
 
     /// 次の巻が単独画像の場合
     private func openNextImage(_ nextItem: DriveItem, parentId: String?) {
+        // 同期的に完結するのでリクエストはここで終端に達する
+        pendingOpenNextDriveItemID = nil
+
         // idは画像自身のものを使う（親フォルダIDを使うと、同じフォルダ内の
         // 別画像へ連続ジャンプした際にidが変化せず、状態リセットも次巻検出も機能しなくなる）
         let source = RemoteComicSource(
@@ -996,13 +1201,27 @@ struct AlertsAndSheetsModifier: ViewModifier {
         // アーカイブの場合はダウンロード済みかチェック
         if var existingComic = try? LocalStorageService.shared.findComic(byDriveFileId: nextItem.id),
            existingComic.status == .completed {
+            // 同期的に完結するのでリクエストはここで終端に達する
+            pendingOpenNextDriveItemID = nil
             // 次の巻は1ページ目から表示する
             existingComic.lastReadPage = 0
             readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
         } else {
-            // 未ダウンロードの場合は、本来はDownloadSheetを出すべきだが
-            // リーダーからの自動遷移なので、一旦選択状態にする
-            selectedItem = nextItem
+            // 未ダウンロードの場合はDownloadSheet（selectedItemのsheet）で案内する。
+            // このパスだけはセッションの差し替えではなくsheet表示が必要であり、
+            // fullScreenCoverが表示されたままsheetは出せないため、明示的にカバーを
+            // 閉じてから、dismissアニメーションの完了を待ってsheetを表示する
+            // （同時に行うと表示が競合してsheetが出ないことがある）
+            let requestID = nextItem.id
+            readingSession = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                // 待機中に別の遷移リクエストが割り込んでいた場合は何もしない
+                guard pendingOpenNextDriveItemID == requestID else { return }
+                // ここでリクエストは終端に達する
+                pendingOpenNextDriveItemID = nil
+                guard readingSession == nil else { return }
+                selectedItem = nextItem
+            }
         }
     }
 
@@ -1014,25 +1233,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 libraryViewModel.refreshDownloadedComics()
                 libraryViewModel.invalidateAllSeriesThumbnails()
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextVolume"))) { notification in
-                if var nextComic = notification.object as? LocalComic {
-                    // 次の巻は1ページ目から表示する
-                    nextComic.lastReadPage = 0
-
-                    // 現在のセッションを一度閉じてから新しいセッションを開く
-                    readingSession = nil
-                    
-                    // 確実に前のシートが閉じるのを待ってから新しいセッションを開始
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: nextComic))
-                    }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNextDriveItem"))) { notification in
-                if let nextItem = notification.object as? DriveItem {
-                    handleOpenNextDriveItem(nextItem)
-                }
-            }
             .alert("サインアウト", isPresented: $showingSignOutAlert) {
                 Button("キャンセル", role: .cancel) {}
                 Button("サインアウト", role: .destructive) {
@@ -1040,131 +1240,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 }
             } message: {
                 Text("サインアウトしますか？")
-            }
-            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    guard let folder = selectedFolderForBulk else { return }
-                    Task { @MainActor in
-                        do {
-                            let added = try await DownloadQueueManager.shared.enqueueSeries(folder: folder)
-                            if added > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(folder.name) の\(added)件をキューに追加しました",
-                                    type: .info
-                                )
-                            } else {
-                                toast = ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                )
-                            }
-                        } catch {
-                            toast = ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            )
-                        }
-                    }
-                }
-            } message: {
-                if let folder = selectedFolderForBulk {
-                    Text("\(folder.name)内のアーカイブをバックグラウンドで一括ダウンロードします。")
-                }
-            }
-            .alert("この巻以降をダウンロード", isPresented: $showingCascadeDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    guard let item = selectedItemForCascade,
-                          let folderId = libraryViewModel.currentFolderId else { return }
-                    Task { @MainActor in
-                        do {
-                            let (added, total) = try await DownloadQueueManager.shared.enqueueFrom(
-                                folderId: folderId,
-                                item: item
-                            )
-                            if added > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(item.name)以降の\(added)件をキューに追加しました",
-                                    type: .info
-                                )
-                            } else if total > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                )
-                            } else {
-                                toast = ToastData(
-                                    title: "ダウンロード失敗",
-                                    message: "対象の巻が見つかりませんでした",
-                                    type: .error
-                                )
-                            }
-                        } catch {
-                            toast = ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            )
-                        }
-                    }
-                }
-            } message: {
-                if let item = selectedItemForCascade {
-                    Text("「\(item.name)」以降のアーカイブをバックグラウンドでダウンロードします。")
-                }
-            }
-            .alert("試し読みダウンロード", isPresented: $showingTrialDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    Task { @MainActor in
-                        do {
-                            let (added, seriesCount, candidateCount) =
-                                try await DownloadQueueManager.shared.enqueueTrialVolumes()
-                            if added > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(seriesCount)シリーズ中\(added)件の1巻をキューに追加しました",
-                                    type: .info
-                                )
-                            } else if candidateCount > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                )
-                            } else if seriesCount > 0 {
-                                toast = ToastData(
-                                    title: "ダウンロード",
-                                    message: "対象のアーカイブが見つかりませんでした",
-                                    type: .error
-                                )
-                            } else {
-                                toast = ToastData(
-                                    title: "ダウンロード",
-                                    message: "シリーズフォルダが見つかりませんでした",
-                                    type: .info
-                                )
-                            }
-                        } catch {
-                            toast = ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            )
-                        }
-                    }
-                }
-            } message: {
-                Text("全シリーズの1巻をバックグラウンドで一括ダウンロードします。シリーズ数が多い場合は時間がかかることがあります。")
-            }
-            .sheet(isPresented: $showingDownloadQueue) {
-                DownloadQueueView()
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定
@@ -1194,11 +1269,13 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 )
             }
             .fullScreenCover(item: $readingSession) { session in
+                // 「次の巻」への遷移はカバーを閉じずにitem（readingSession）を
+                // 直接差し替えることで行う（fullScreenCover(item:)は表示中のitem変更を
+                // dismiss+再表示ではなく中身の差し替えとして扱うため、黒画面が出ない）。
                 // sessionのidが変わるたびにReaderViewとその@State（ReaderViewModel）を
-                // 強制的に作り直す。これがないと、次の巻への遷移がSwiftUI側で
-                // 「新規表示」ではなく「同一シートの内容差し替え」として扱われた場合に
-                // 古いReaderViewModel（＝古いページ数）が使い回されてしまう
-                ReaderView(source: session.source)
+                // 強制的に作り直す。これがないと古いReaderViewModel（＝古いページ数）が
+                // 使い回されてしまう
+                ReaderView(source: session.source, onOpenNext: handleOpenNext)
                     .id(session.id)
             }
     }

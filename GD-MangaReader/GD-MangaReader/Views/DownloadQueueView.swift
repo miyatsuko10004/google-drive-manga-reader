@@ -8,6 +8,7 @@ import SwiftUI
 /// ダウンロードキューの一覧を表示するシート
 struct DownloadQueueView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var showingCancelAllConfirmation = false
 
     private var manager: DownloadQueueManager { .shared }
 
@@ -33,6 +34,16 @@ struct DownloadQueueView: View {
             }
             .navigationTitle("ダウンロード")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "\(manager.pendingTasks.count)件のダウンロードをキャンセルしますか？",
+                isPresented: $showingCancelAllConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("すべてキャンセル", role: .destructive) {
+                    manager.cancelAll()
+                }
+                Button("ダウンロードを続ける", role: .cancel) {}
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") {
@@ -51,7 +62,8 @@ struct DownloadQueueView: View {
                             .disabled(manager.finishedCount == 0)
 
                             Button(role: .destructive) {
-                                manager.cancelAll()
+                                // 未完了タスクの一括キャンセルは元に戻せないため、確認ダイアログを挟む
+                                showingCancelAllConfirmation = true
                             } label: {
                                 Label("すべてキャンセル", systemImage: "xmark.circle")
                             }
@@ -59,6 +71,7 @@ struct DownloadQueueView: View {
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
+                        .accessibilityLabel("メニュー")
                     }
                 }
             }
@@ -99,6 +112,7 @@ struct DownloadQueueRow: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("キャンセル")
             }
         }
         .padding(.vertical, 4)
@@ -114,10 +128,10 @@ struct DownloadQueueRow: View {
             ProgressView()
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
+                .foregroundColor(.appDestructive)
         case .cancelled:
             Image(systemName: "xmark.circle")
                 .foregroundColor(.secondary)
@@ -136,7 +150,7 @@ struct DownloadQueueRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 ProgressView(value: task.progress)
                     .progressViewStyle(.linear)
-                    .tint(.blue)
+                    .tint(.appProgressTint)
 
                 Text(runningStatusText)
                     .font(.caption2)
@@ -146,12 +160,12 @@ struct DownloadQueueRow: View {
         case .completed:
             Text("完了")
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundColor(.appSuccess)
 
         case .failed(let message):
             Text(message)
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(.appDestructive)
                 .lineLimit(2)
 
         case .cancelled:

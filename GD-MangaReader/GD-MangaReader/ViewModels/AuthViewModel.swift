@@ -110,6 +110,10 @@ final class AuthViewModel {
     
     /// サインアウト
     func signOut() {
+        // 進行中のダウンロードはトークン失効後どのみち失敗するため、
+        // サインアウト前にすべてキャンセルする（ルートオーバーレイの
+        // ダウンロードバナーがログイン画面に残るのも防ぐ）
+        DownloadQueueManager.shared.cancelAll()
         GIDSignIn.sharedInstance.signOut()
         isSignedIn = false
         userName = ""
