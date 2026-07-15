@@ -12,7 +12,7 @@ struct DriveItemGridView: View {
 
     var body: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
-            ForEach(libraryViewModel.filteredItems) { item in
+            ForEach(libraryViewModel.displayItems) { item in
                 DriveItemGridCell(
                     item: item,
                     isBulkDownloading: item.isFolder

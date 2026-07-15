@@ -11,7 +11,7 @@ struct DriveItemListView: View {
 
     var body: some View {
         LazyVStack(spacing: 8) {
-            ForEach(libraryViewModel.filteredItems) { item in
+            ForEach(libraryViewModel.displayItems) { item in
                 DriveItemListRow(
                     item: item,
                     isBulkDownloading: item.isFolder

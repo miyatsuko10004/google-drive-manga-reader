@@ -110,14 +110,71 @@ final class DriveService {
         query.pageToken = pageToken
         
         let result = try await executeFileListQuery(query)
-        
+
         print("🔍 [DriveService] Found \(result.files?.count ?? 0) files in folder \(targetFolderId)")
-        
-        let items = (result.files ?? []).compactMap { file -> DriveItem? in
+
+        return (makeDriveItems(from: result), result.nextPageToken)
+    }
+
+    // MARK: - Search
+
+    /// Driveのqクエリ（https://developers.google.com/drive/api/guides/search-files）の
+    /// シングルクォート文字列リテラルへ安全に埋め込めるよう、ユーザー入力をエスケープする。
+    /// バックスラッシュとシングルクォートをバックスラッシュでエスケープする
+    /// （バックスラッシュを先に処理しないと、エスケープ用の`\`まで二重にエスケープされてしまう）。
+    /// 純粋関数（ユニットテスト候補）
+    static func escapeDriveQueryValue(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+    }
+
+    /// ファイル名でDrive全体をサーバーサイド検索する（部分一致・ゴミ箱除外）。
+    ///
+    /// 注意（検索スコープの制限）: Drive APIのqクエリは「特定フォルダの子孫（深い階層）」という
+    /// 条件を表現できない（`'x' in parents`は直下の子のみ）。祖先を再帰的に辿るフィルタは
+    /// APIコールが多くコストが高いため実装せず、アプリがアクセスできるDrive全体を対象とする
+    /// （＝mangaルートフォルダの外のファイルもヒットしうる）。
+    ///
+    /// 結果を「漫画らしい形」に保つため、対象はフォルダとアーカイブのみに絞る（画像は含めない）。
+    func searchFiles(
+        query userQuery: String,
+        pageToken: String? = nil
+    ) async throws -> (items: [DriveItem], nextPageToken: String?) {
+        let escaped = Self.escapeDriveQueryValue(userQuery)
+
+        // フォルダ + アーカイブのMIMEタイプ + アーカイブ拡張子（MIMEが不正確なファイル対策）
+        let folderCondition = "mimeType='application/vnd.google-apps.folder'"
+        let archiveMimeConditions = Config.SupportedFormats.mimeTypes
+            .filter { $0 != "application/vnd.google-apps.folder" && !$0.hasPrefix("image/") }
+            .map { "mimeType='\($0)'" }
+        let archiveExtensionConditions = Config.SupportedFormats.archiveExtensions
+            .sorted() // Setのため順序を安定させる
+            .map { "name contains '.\($0)'" }
+        let typeCondition = ([folderCondition] + archiveMimeConditions + archiveExtensionConditions)
+            .joined(separator: " or ")
+
+        let query = GTLRDriveQuery_FilesList.query()
+        query.q = "name contains '\(escaped)' and trashed = false and (\(typeCondition))"
+        query.fields = "nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents, createdTime, modifiedTime, imageMediaMetadata)"
+        query.orderBy = "folder, name"
+        query.pageSize = 50
+        query.pageToken = pageToken
+
+        let result = try await executeFileListQuery(query)
+
+        print("🔍 [DriveService] Search '\(userQuery)' found \(result.files?.count ?? 0) files")
+
+        return (makeDriveItems(from: result), result.nextPageToken)
+    }
+
+    /// GTLRのファイルリストレスポンスをDriveItem配列へ変換する共通マッピング
+    private func makeDriveItems(from result: GTLRDrive_FileList) -> [DriveItem] {
+        (result.files ?? []).compactMap { file -> DriveItem? in
             guard let id = file.identifier, let name = file.name, let mimeType = file.mimeType else {
                 return nil
             }
-            
+
             return DriveItem(
                 id: id,
                 name: name,
@@ -131,8 +188,6 @@ final class DriveService {
                 height: file.imageMediaMetadata?.height?.intValue
             )
         }
-        
-        return (items, result.nextPageToken)
     }
     
     /// フォルダ内のアーカイブを全件（ページングしながら）取得し、自然順（巻数を数値として比較）にソートして返す

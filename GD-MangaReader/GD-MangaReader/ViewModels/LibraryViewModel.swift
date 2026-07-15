@@ -54,7 +54,14 @@ final class LibraryViewModel {
     // MARK: - Properties
     
     /// オフラインモードが有効かどうか
-    var isOfflineMode: Bool = false
+    var isOfflineMode: Bool = false {
+        didSet {
+            // オフラインへ切り替えたら進行中のサーバー検索をキャンセルして結果をクリアし、
+            // オンラインへ戻したら（検索テキストがあれば）サーバー検索を再開する
+            guard oldValue != isOfflineMode else { return }
+            scheduleServerSearch()
+        }
+    }
     
     /// 現在表示中のアイテム一覧
     private(set) var items: [DriveItem] = []
@@ -67,11 +74,43 @@ final class LibraryViewModel {
     
     /// 検索テキスト
     var searchText: String = "" {
-        didSet { updateFilteredItems() }
+        didSet {
+            updateFilteredItems()
+            scheduleServerSearch()
+        }
     }
-    
+
     /// フィルタ・ソート済みの表示用アイテム一覧
     private(set) var filteredItems: [DriveItem] = []
+
+    // MARK: - Server-side Search
+
+    /// サーバーサイド検索（Drive全体）の結果。
+    /// オンラインで検索テキストが入力されている間は、filteredItemsの代わりにこちらを表示する
+    private(set) var searchResults: [DriveItem] = []
+
+    /// サーバーサイド検索の実行中フラグ（「検索中...」表示用）
+    private(set) var isSearching: Bool = false
+
+    /// デバウンス付きのサーバー検索タスク（新しい入力が来るたびにキャンセルして張り直す）
+    @ObservationIgnored
+    private var searchTask: Task<Void, Never>?
+
+    /// サーバーサイド検索がアクティブかどうか。
+    /// オフライン時は従来どおりローカル（読み込み済みアイテム）のみのフィルタで完結させる
+    var isServerSearchActive: Bool {
+        !isOfflineMode && !trimmedSearchText.isEmpty
+    }
+
+    /// 前後の空白を除いた検索テキスト
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 一覧に表示するアイテム（サーバー検索中は検索結果、それ以外は現在フォルダのフィルタ結果）
+    var displayItems: [DriveItem] {
+        isServerSearchActive ? searchResults : filteredItems
+    }
     
     // MARK: - Local Cache
     
@@ -234,12 +273,54 @@ final class LibraryViewModel {
             ? items
             : items.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
 
-        filteredItems = targetItems.sorted {
+        filteredItems = sortItems(targetItems)
+        // ソート順変更をサーバー検索結果にも反映する（sortOptionのdidSetからも呼ばれるため）
+        searchResults = sortItems(searchResults)
+    }
+
+    /// 現在のソート順でアイテムをソートする
+    private func sortItems(_ items: [DriveItem]) -> [DriveItem] {
+        items.sorted {
             switch sortOption {
             case .nameAsc: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             case .nameDesc: return $0.name.localizedStandardCompare($1.name) == .orderedDescending
             case .dateNewest: return ($0.createdTime ?? .distantPast) > ($1.createdTime ?? .distantPast)
             case .dateOldest: return ($0.createdTime ?? .distantPast) < ($1.createdTime ?? .distantPast)
+            }
+        }
+    }
+
+    /// サーバーサイド検索をデバウンス（300ms）付きでスケジュールする。
+    /// 検索テキストが空になった／オフラインの場合は結果をクリアして通常表示に戻す
+    private func scheduleServerSearch() {
+        searchTask?.cancel()
+
+        let query = trimmedSearchText
+        guard !isOfflineMode, !query.isEmpty else {
+            searchResults = []
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+        searchTask = Task { [weak self] in
+            // デバウンス: 連続入力中はキャンセルされ、最後の入力から300ms後にのみ実行される
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            do {
+                // 検索対象は現在フォルダではなくDrive全体（制限の詳細はDriveService.searchFiles参照）。
+                // ページネーションは行わず先頭ページ（最大50件）のみ表示する
+                let result = try await self.driveService.searchFiles(query: query)
+                guard !Task.isCancelled else { return }
+                self.searchResults = self.sortItems(result.items)
+                self.isSearching = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                // サーバー検索に失敗した場合は、読み込み済みアイテムのローカルフィルタ結果へ
+                // フォールバックする（フォルダ一覧ごとエラー画面に置き換えるのは過剰なため）
+                self.searchResults = self.filteredItems
+                self.isSearching = false
             }
         }
     }
@@ -453,8 +534,24 @@ final class LibraryViewModel {
     func navigateToFolder(_ folder: DriveItem) async {
         guard !isOfflineMode else { return }
         guard folder.isFolder else { return }
-        
-        folderPath.append(folder)
+
+        // 検索結果からフォルダを開いた場合は検索を解除し、通常のフォルダ表示に戻す
+        // （didSet経由でサーバー検索タスクのキャンセルと結果クリアも行われる）
+        if !searchText.isEmpty {
+            searchText = ""
+        }
+
+        // サーバー検索の結果はDrive全体から来るため、現在フォルダの子とは限らない。
+        // 現在フォルダの子でないフォルダを開く場合、古いパンくずに追記すると
+        // 「A > B > （Cの下にある）Naruto」のような偽の階層ができ、navigateBackが
+        // 誤った場所（B）へ戻ってしまう。そのため検索経由の遷移では既存のローカルな
+        // パンくずを破棄してそのフォルダから始める（実際の祖先パスの再構築は
+        // APIコールが必要でコストが高いため、スコープ外とする）
+        if folder.parentId != currentFolderId {
+            folderPath = [folder]
+        } else {
+            folderPath.append(folder)
+        }
         
         currentFolderId = folder.id
         items = []

@@ -8,6 +8,7 @@ import SwiftUI
 /// ダウンロードキューの一覧を表示するシート
 struct DownloadQueueView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var showingCancelAllConfirmation = false
 
     private var manager: DownloadQueueManager { .shared }
 
@@ -33,6 +34,16 @@ struct DownloadQueueView: View {
             }
             .navigationTitle("ダウンロード")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "\(manager.pendingTasks.count)件のダウンロードをキャンセルしますか？",
+                isPresented: $showingCancelAllConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("すべてキャンセル", role: .destructive) {
+                    manager.cancelAll()
+                }
+                Button("ダウンロードを続ける", role: .cancel) {}
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") {
@@ -51,7 +62,8 @@ struct DownloadQueueView: View {
                             .disabled(manager.finishedCount == 0)
 
                             Button(role: .destructive) {
-                                manager.cancelAll()
+                                // 未完了タスクの一括キャンセルは元に戻せないため、確認ダイアログを挟む
+                                showingCancelAllConfirmation = true
                             } label: {
                                 Label("すべてキャンセル", systemImage: "xmark.circle")
                             }

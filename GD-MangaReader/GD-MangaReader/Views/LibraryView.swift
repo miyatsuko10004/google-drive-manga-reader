@@ -130,7 +130,12 @@ struct LibraryView: View {
                 offlineBannerView
             }
 
-            if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
+            // サーバー検索の状態を最優先で表示する。空のフォルダやロードエラーの状態でも
+            // 検索フィールドは操作できるため、ここで先に分岐しないと「検索中...」や
+            // 検索結果が永久に表示されない（emptyView/errorViewに遮られてしまう）
+            if libraryViewModel.isSearching || libraryViewModel.isServerSearchActive {
+                fileListContent
+            } else if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
                 shimmerLoadingView
             } else if let error = libraryViewModel.errorMessage {
                 errorView(message: error)
@@ -162,11 +167,19 @@ struct LibraryView: View {
                 }
 
                 Section {
-                    itemsSection
+                    if libraryViewModel.isSearching {
+                        // サーバーサイド検索の実行中表示
+                        searchingView
+                    } else if libraryViewModel.isServerSearchActive && libraryViewModel.displayItems.isEmpty {
+                        // サーバー検索の結果が0件
+                        searchEmptyView
+                    } else {
+                        itemsSection
 
-                    // さらに読み込み
-                    if libraryViewModel.hasMoreItems {
-                        autoLoadMoreView
+                        // さらに読み込み（サーバー検索の表示中はフォルダのページネーションを行わない）
+                        if !libraryViewModel.isServerSearchActive && libraryViewModel.hasMoreItems {
+                            autoLoadMoreView
+                        }
                     }
                 } header: {
                     listControlBar
@@ -309,6 +322,24 @@ struct LibraryView: View {
         }
     }
     
+    /// サーバーサイド検索の実行中表示
+    private var searchingView: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text("検索中...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+    }
+
+    /// サーバーサイド検索の結果が0件だった場合の表示
+    private var searchEmptyView: some View {
+        ContentUnavailableView.search(text: libraryViewModel.searchText)
+            .padding(.vertical, 24)
+    }
+
     /// さらに読み込みトリガー
     private var autoLoadMoreView: some View {
         Color.clear
@@ -563,7 +594,12 @@ struct LibraryView: View {
     /// 巻の長押し: この巻以降をダウンロード（即実行＋Undoトースト）
     private func handleDownloadFrom(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
-        guard let folderId = libraryViewModel.currentFolderId else { return }
+        // 通常のブラウズ中はcurrentFolderId（今表示しているフォルダ）が常に正しいため優先する。
+        // item.parentIdはparents?.firstに由来し、（レガシーの）複数親を持つファイルでは
+        // 表示中のフォルダと一致する保証がない。currentFolderIdがnilになるのは
+        // サーバー検索結果など現在フォルダの文脈がない場合のみで、そのときだけ
+        // アイテム自身の親フォルダIDへフォールバックする
+        guard let folderId = libraryViewModel.currentFolderId ?? item.parentId else { return }
         Task { @MainActor in
             do {
                 let (tasks, total) = try await downloadQueue.enqueueFrom(

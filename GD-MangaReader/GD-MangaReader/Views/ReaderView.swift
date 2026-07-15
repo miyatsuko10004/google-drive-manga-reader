@@ -22,6 +22,13 @@ struct ReaderView: View {
     @State private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
 
+    /// 「読了後に自動削除」を初めて有効化する際の確認アラート表示フラグ
+    @State private var showingAutoDeleteConfirmation = false
+
+    /// 自動削除の初回確認を済ませたかどうかのUserDefaultsキー
+    /// （一度確認したら、以降のON/OFF切り替えでは確認を出さない）
+    private static let autoDeleteConfirmedKey = "reader.autoDeleteConfirmed"
+
     init(source: any ComicSource, onOpenNext: @escaping (NextVolumeTarget) -> Void = { _ in }) {
         self.source = source
         self.onOpenNext = onOpenNext
@@ -88,6 +95,15 @@ struct ReaderView: View {
         .onKeyPress(.space) {
             viewModel.goToNextPage()
             return .handled
+        }
+        .alert("読了後に自動削除", isPresented: $showingAutoDeleteConfirmation) {
+            Button("キャンセル", role: .cancel) {}
+            Button("有効にする") {
+                UserDefaults.standard.set(true, forKey: Self.autoDeleteConfirmedKey)
+                viewModel.autoDeleteAfterRead = true
+            }
+        } message: {
+            Text("読み終えた巻を自動的に削除します。よろしいですか？")
         }
     }
     
@@ -328,7 +344,15 @@ struct ReaderView: View {
             Section("一般設定") {
                 Toggle("読了後に自動削除", isOn: Binding(
                     get: { viewModel.autoDeleteAfterRead },
-                    set: { viewModel.autoDeleteAfterRead = $0 }
+                    set: { newValue in
+                        // ファイル削除を伴う設定のため、初回の有効化時のみ確認アラートを挟む
+                        // （確認済みならUserDefaultsのフラグによりそのまま切り替える）
+                        if newValue && !UserDefaults.standard.bool(forKey: Self.autoDeleteConfirmedKey) {
+                            showingAutoDeleteConfirmation = true
+                        } else {
+                            viewModel.autoDeleteAfterRead = newValue
+                        }
+                    }
                 ))
             }
         } label: {
