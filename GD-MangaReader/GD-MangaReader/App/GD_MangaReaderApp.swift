@@ -17,7 +17,9 @@ struct GD_MangaReaderApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .statusCenterOverlay()
                 .environment(authViewModel)
+                .environment(StatusCenter.shared)
                 .onOpenURL { url in
                     print("📱 [APP] onOpenURL: \(url)")
                     GIDSignIn.sharedInstance.handle(url)

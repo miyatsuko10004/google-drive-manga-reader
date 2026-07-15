@@ -9,6 +9,7 @@ import Kingfisher
 /// Driveファイルブラウザ画面
 struct LibraryView: View {
     @Environment(AuthViewModel.self) private var authViewModel
+    @Environment(StatusCenter.self) private var statusCenter
     @State private var libraryViewModel = LibraryViewModel()
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
@@ -17,10 +18,8 @@ struct LibraryView: View {
     @State private var selectedFolderForBulk: DriveItem?
     @State private var showingCascadeDownloadConfirmation = false
     @State private var selectedItemForCascade: DriveItem?
-    @State private var showingDownloadQueue = false
     @State private var showingTrialDownloadConfirmation = false
     @State private var localRefreshTrigger = 0
-    @State private var toast: ToastData?
     @State private var loadTask: Task<Void, Never>?
 
     private var downloadQueue: DownloadQueueManager { .shared }
@@ -52,16 +51,9 @@ struct LibraryView: View {
                 .ignoresSafeArea()
             
             contentLayer
-
-            // ダウンロードキュープログレスバナー
-            if downloadQueue.isActive {
-                VStack {
-                    Spacer()
-                    downloadQueueBanner
-                }
-            }
+            // ダウンロードキュープログレスバナーとトーストはルートの
+            // .statusCenterOverlay()（StatusCenterOverlay.swift）が表示する
         }
-        .toastView(toast: $toast)
         .navigationTitle(libraryViewModel.currentFolderName)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -91,17 +83,17 @@ struct LibraryView: View {
             downloadQueue.onQueueDrained = { completed, failed in
                 guard completed + failed > 0 else { return }
                 if failed == 0 {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "ダウンロード完了",
                         message: "\(completed)件のダウンロードが完了しました",
                         type: .success
-                    )
+                    ))
                 } else {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "ダウンロード完了 (\(failed)件失敗)",
                         message: "\(completed)件完了、\(failed)件失敗しました",
                         type: .error
-                    )
+                    ))
                 }
             }
             await libraryViewModel.loadFiles()
@@ -131,9 +123,7 @@ struct LibraryView: View {
             showingCascadeDownloadConfirmation: $showingCascadeDownloadConfirmation,
             selectedItemForCascade: $selectedItemForCascade,
             showingTrialDownloadConfirmation: $showingTrialDownloadConfirmation,
-            showingDownloadQueue: $showingDownloadQueue,
             readingSession: $readingSession,
-            toast: $toast,
             authViewModel: authViewModel,
             libraryViewModel: libraryViewModel
         ))
@@ -374,46 +364,6 @@ struct LibraryView: View {
         }
     }
     
-    /// ダウンロードキューバナー（タップで一覧表示）
-    private var downloadQueueBanner: some View {
-        HStack(spacing: 16) {
-            ProgressView()
-                .tint(.white)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("バックグラウンドダウンロード中...")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-
-                HStack {
-                    ProgressView(value: downloadQueue.overallProgress)
-                        .progressViewStyle(.linear)
-                        .tint(.appProgressTint)
-
-                    Text("\(downloadQueue.finishedCount) / \(downloadQueue.totalCount)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                }
-            }
-
-            Image(systemName: "chevron.up")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
-        }
-        .padding()
-        .background(Color.black.opacity(0.8))
-        .cornerRadius(12)
-        .padding()
-        .shadow(radius: 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            showingDownloadQueue = true
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(), value: downloadQueue.isActive)
-    }
-    
     /// ツールバー
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -464,9 +414,9 @@ struct LibraryView: View {
                     }
                 }
 
-                // ダウンロード一覧
+                // ダウンロード一覧（シートはルートの.statusCenterOverlay()が表示する）
                 Button {
-                    showingDownloadQueue = true
+                    statusCenter.showDownloadQueue()
                 } label: {
                     Label("ダウンロード", systemImage: "arrow.down.circle")
                 }
@@ -497,11 +447,11 @@ struct LibraryView: View {
     /// オフラインモード時にダウンロード操作をブロックし、案内トーストを表示
     private func blockIfOffline() -> Bool {
         guard authViewModel.isOfflineMode else { return false }
-        toast = ToastData(
+        statusCenter.show(ToastData(
             title: "オフラインモード",
             message: "オフライン中はダウンロードできません。",
             type: .error
-        )
+        ))
         return true
     }
 
@@ -519,11 +469,11 @@ struct LibraryView: View {
         // 「追加しました」という誤解を招くトーストが出ないようにする
         let alreadyQueued = downloadQueue.isInQueue(driveFileId: item.id)
         if downloadQueue.enqueue(.file(item)) != nil && !alreadyQueued {
-            toast = ToastData(
+            statusCenter.show(ToastData(
                 title: "ダウンロード開始",
                 message: "\(item.name) をキューに追加しました",
                 type: .info
-            )
+            ))
         }
     }
 
@@ -538,11 +488,11 @@ struct LibraryView: View {
     private func handleTrialDownload() {
         guard !blockIfOffline() else { return }
         guard !downloadQueue.isTrialEnqueueInProgress else {
-            toast = ToastData(
+            statusCenter.show(ToastData(
                 title: "試し読みダウンロード",
                 message: "現在処理中です。しばらくお待ちください。",
                 type: .info
-            )
+            ))
             return
         }
         showingTrialDownloadConfirmation = true
@@ -560,11 +510,11 @@ struct LibraryView: View {
             } else {
                 // 未ダウンロード → ダウンロードシートを表示
                 if authViewModel.isOfflineMode {
-                    toast = ToastData(
+                    statusCenter.show(ToastData(
                         title: "オフラインモード",
                         message: "この漫画はオフラインでは閲覧できません。",
                         type: .error
-                    )
+                    ))
                 } else {
                     selectedItem = item
                 }
@@ -572,11 +522,11 @@ struct LibraryView: View {
         } else if item.isImage {
             // 画像ファイルはストリーミング閲覧開始
             if authViewModel.isOfflineMode {
-                toast = ToastData(
+                statusCenter.show(ToastData(
                     title: "オフラインモード",
                     message: "この漫画はオフラインでは閲覧できません。",
                     type: .error
-                )
+                ))
             } else {
                 startStreamingRead(from: item)
             }
@@ -852,6 +802,7 @@ struct DriveItemListRow: View {
 #Preview {
     LibraryView()
         .environment(AuthViewModel())
+        .environment(StatusCenter.shared)
 }
 
 // MARK: - View Modifiers
@@ -864,9 +815,9 @@ struct AlertsAndSheetsModifier: ViewModifier {
     @Binding var showingCascadeDownloadConfirmation: Bool
     @Binding var selectedItemForCascade: DriveItem?
     @Binding var showingTrialDownloadConfirmation: Bool
-    @Binding var showingDownloadQueue: Bool
     @Binding var readingSession: LibraryView.ComicSession?
-    @Binding var toast: ToastData?
+
+    @Environment(StatusCenter.self) private var statusCenter
 
     let authViewModel: AuthViewModel
     let libraryViewModel: LibraryViewModel
@@ -928,13 +879,14 @@ struct AlertsAndSheetsModifier: ViewModifier {
             readingSession = LibraryView.ComicSession(source: LocalComicSource(comic: existingComic))
         } else {
             // 未ダウンロードのアーカイブ、またはフォルダ/画像はオフライン表示不可。
-            // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+            // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+            // カバーを閉じてから出す（この順序を維持すること）
             readingSession = nil
-            toast = ToastData(
+            statusCenter.show(ToastData(
                 title: "オフラインモード",
                 message: "この漫画はオフラインでは閲覧できません。",
                 type: .error
-            )
+            ))
         }
     }
 
@@ -974,13 +926,14 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 // 取得中にユーザーがリーダーを手動で閉じていた場合は、
                 // もう関心のないエラートーストを出さない
                 guard readingSession != nil else { return }
-                // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+                // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+                // カバーを閉じてから出す（この順序を維持すること）
                 readingSession = nil
-                toast = ToastData(
+                statusCenter.show(ToastData(
                     title: "読み込み失敗",
                     message: error.localizedDescription,
                     type: .error
-                )
+                ))
                 return
             }
 
@@ -995,13 +948,14 @@ struct AlertsAndSheetsModifier: ViewModifier {
 
             let images = allItems.filter { $0.isImage }
             guard !images.isEmpty else {
-                // トーストはライブラリ画面側に表示されるため、カバーを閉じてから出す
+                // トーストのオーバーレイはfullScreenCover（リーダー）の下に隠れるため、
+                // カバーを閉じてから出す（この順序を維持すること）
                 readingSession = nil
-                toast = ToastData(
+                statusCenter.show(ToastData(
                     title: "ダウンロード",
                     message: "この巻には画像が含まれていません",
                     type: .error
-                )
+                ))
                 return
             }
 
@@ -1086,24 +1040,24 @@ struct AlertsAndSheetsModifier: ViewModifier {
                         do {
                             let added = try await DownloadQueueManager.shared.enqueueSeries(folder: folder)
                             if added > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード開始",
                                     message: "\(folder.name) の\(added)件をキューに追加しました",
                                     type: .info
-                                )
+                                ))
                             } else {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード",
                                     message: "追加できるファイルがありません（ダウンロード済み）",
                                     type: .info
-                                )
+                                ))
                             }
                         } catch {
-                            toast = ToastData(
+                            statusCenter.show(ToastData(
                                 title: "ダウンロード失敗",
                                 message: error.localizedDescription,
                                 type: .error
-                            )
+                            ))
                         }
                     }
                 }
@@ -1124,30 +1078,30 @@ struct AlertsAndSheetsModifier: ViewModifier {
                                 item: item
                             )
                             if added > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード開始",
                                     message: "\(item.name)以降の\(added)件をキューに追加しました",
                                     type: .info
-                                )
+                                ))
                             } else if total > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード",
                                     message: "追加できるファイルがありません（ダウンロード済み）",
                                     type: .info
-                                )
+                                ))
                             } else {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード失敗",
                                     message: "対象の巻が見つかりませんでした",
                                     type: .error
-                                )
+                                ))
                             }
                         } catch {
-                            toast = ToastData(
+                            statusCenter.show(ToastData(
                                 title: "ダウンロード失敗",
                                 message: error.localizedDescription,
                                 type: .error
-                            )
+                            ))
                         }
                     }
                 }
@@ -1164,44 +1118,41 @@ struct AlertsAndSheetsModifier: ViewModifier {
                             let (added, seriesCount, candidateCount) =
                                 try await DownloadQueueManager.shared.enqueueTrialVolumes()
                             if added > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード開始",
                                     message: "\(seriesCount)シリーズ中\(added)件の1巻をキューに追加しました",
                                     type: .info
-                                )
+                                ))
                             } else if candidateCount > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード",
                                     message: "追加できるファイルがありません（ダウンロード済み）",
                                     type: .info
-                                )
+                                ))
                             } else if seriesCount > 0 {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード",
                                     message: "対象のアーカイブが見つかりませんでした",
                                     type: .error
-                                )
+                                ))
                             } else {
-                                toast = ToastData(
+                                statusCenter.show(ToastData(
                                     title: "ダウンロード",
                                     message: "シリーズフォルダが見つかりませんでした",
                                     type: .info
-                                )
+                                ))
                             }
                         } catch {
-                            toast = ToastData(
+                            statusCenter.show(ToastData(
                                 title: "ダウンロード失敗",
                                 message: error.localizedDescription,
                                 type: .error
-                            )
+                            ))
                         }
                     }
                 }
             } message: {
                 Text("全シリーズの1巻をバックグラウンドで一括ダウンロードします。シリーズ数が多い場合は時間がかかることがあります。")
-            }
-            .sheet(isPresented: $showingDownloadQueue) {
-                DownloadQueueView()
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定
