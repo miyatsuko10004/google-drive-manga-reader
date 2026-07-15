@@ -67,8 +67,11 @@ struct ToastView: View {
 
             if let action = data.action {
                 Button {
-                    action.handler()
+                    // 先に自トーストを閉じてからアクションを実行する。
+                    // ハンドラーが後続トースト（例: 「元に戻す」の結果報告）を表示するケースで、
+                    // 後から呼ばれるdismissが新しいトーストを消してしまわないようにするため
                     onDismiss()
+                    action.handler()
                 } label: {
                     Text(action.label)
                         .font(.subheadline)

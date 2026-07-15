@@ -15,11 +15,6 @@ struct LibraryView: View {
     @State private var selectedItem: DriveItem?
     @State private var showingSignOutAlert = false
     @State private var readingSession: ComicSession?
-    @State private var showingBulkDownloadConfirmation = false
-    @State private var selectedFolderForBulk: DriveItem?
-    @State private var showingCascadeDownloadConfirmation = false
-    @State private var selectedItemForCascade: DriveItem?
-    @State private var showingTrialDownloadConfirmation = false
     @State private var localRefreshTrigger = 0
     @State private var loadTask: Task<Void, Never>?
 
@@ -121,12 +116,7 @@ struct LibraryView: View {
         }
         .modifier(AlertsAndSheetsModifier(
             showingSignOutAlert: $showingSignOutAlert,
-            showingBulkDownloadConfirmation: $showingBulkDownloadConfirmation,
             selectedItem: $selectedItem,
-            selectedFolderForBulk: $selectedFolderForBulk,
-            showingCascadeDownloadConfirmation: $showingCascadeDownloadConfirmation,
-            selectedItemForCascade: $selectedItemForCascade,
-            showingTrialDownloadConfirmation: $showingTrialDownloadConfirmation,
             readingSession: $readingSession,
             authViewModel: authViewModel,
             libraryViewModel: libraryViewModel
@@ -506,36 +496,109 @@ struct LibraryView: View {
         return true
     }
 
-    /// フォルダ長押し: シリーズ一括ダウンロードの確認
-    private func handleBulkDownload(_ folder: DriveItem) {
-        guard !blockIfOffline() else { return }
-        selectedFolderForBulk = folder
-        showingBulkDownloadConfirmation = true
+    /// キュー追加の完了を「元に戻す」アクション付きトーストで通知する。
+    /// キュー追加は可逆な追加系操作のため確認ダイアログは出さず、即実行＋Undoで取り消せるようにする
+    /// （Undoの猶予はトーストの表示時間＝StatusCenterのdismissInterval）。
+    /// 「元に戻す」は未完了のタスクのみキャンセルし（完了済みファイルは消さない）、
+    /// 実際にキャンセルできた件数をフォローアップトーストで報告する。
+    private func showUndoableEnqueueToast(message: String, tasks: [DownloadQueueTask]) {
+        let statusCenter = self.statusCenter
+        statusCenter.show(ToastData(
+            title: "ダウンロード開始",
+            message: message,
+            type: .info,
+            action: ToastAction(label: "元に戻す") {
+                let cancelled = DownloadQueueManager.shared.cancelBatch(tasks)
+                statusCenter.show(ToastData(
+                    title: "ダウンロード",
+                    message: "\(cancelled)件キャンセルしました",
+                    type: .info
+                ))
+            }
+        ))
     }
 
-    /// 巻の長押し: この巻のみダウンロード（即キュー追加）
+    /// フォルダ長押し: シリーズ一括ダウンロード（即実行＋Undoトースト）
+    private func handleBulkDownload(_ folder: DriveItem) {
+        guard !blockIfOffline() else { return }
+        Task { @MainActor in
+            do {
+                let tasks = try await downloadQueue.enqueueSeries(folder: folder)
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(folder.name) の\(tasks.count)件をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
+    }
+
+    /// 巻の長押し: この巻のみダウンロード（即キュー追加＋Undoトースト）
     private func handleDownloadSingle(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
         // 既にキュー中の場合はenqueueが既存タスクを返すため、事前にチェックして
         // 「追加しました」という誤解を招くトーストが出ないようにする
         let alreadyQueued = downloadQueue.isInQueue(driveFileId: item.id)
-        if downloadQueue.enqueue(.file(item)) != nil && !alreadyQueued {
-            statusCenter.show(ToastData(
-                title: "ダウンロード開始",
+        if let task = downloadQueue.enqueue(.file(item)), !alreadyQueued {
+            showUndoableEnqueueToast(
                 message: "\(item.name) をキューに追加しました",
-                type: .info
-            ))
+                tasks: [task]
+            )
         }
     }
 
-    /// 巻の長押し: この巻以降をダウンロードの確認
+    /// 巻の長押し: この巻以降をダウンロード（即実行＋Undoトースト）
     private func handleDownloadFrom(_ item: DriveItem) {
         guard !blockIfOffline() else { return }
-        selectedItemForCascade = item
-        showingCascadeDownloadConfirmation = true
+        guard let folderId = libraryViewModel.currentFolderId else { return }
+        Task { @MainActor in
+            do {
+                let (tasks, total) = try await downloadQueue.enqueueFrom(
+                    folderId: folderId,
+                    item: item
+                )
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(item.name)以降の\(tasks.count)件をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else if total > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード失敗",
+                        message: "対象の巻が見つかりませんでした",
+                        type: .error
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
     }
 
-    /// メニュー: 試し読み（全シリーズの1巻をダウンロード）の確認
+    /// メニュー: 試し読み（全シリーズの1巻をダウンロード、即実行＋Undoトースト）
     private func handleTrialDownload() {
         guard !blockIfOffline() else { return }
         guard !downloadQueue.isTrialEnqueueInProgress else {
@@ -546,7 +609,42 @@ struct LibraryView: View {
             ))
             return
         }
-        showingTrialDownloadConfirmation = true
+        Task { @MainActor in
+            do {
+                let (tasks, seriesCount, candidateCount) =
+                    try await downloadQueue.enqueueTrialVolumes()
+                if !tasks.isEmpty {
+                    showUndoableEnqueueToast(
+                        message: "\(seriesCount)シリーズ中\(tasks.count)件の1巻をキューに追加しました",
+                        tasks: tasks
+                    )
+                } else if candidateCount > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "追加できるファイルがありません（ダウンロード済み）",
+                        type: .info
+                    ))
+                } else if seriesCount > 0 {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "対象のアーカイブが見つかりませんでした",
+                        type: .error
+                    ))
+                } else {
+                    statusCenter.show(ToastData(
+                        title: "ダウンロード",
+                        message: "シリーズフォルダが見つかりませんでした",
+                        type: .info
+                    ))
+                }
+            } catch {
+                statusCenter.show(ToastData(
+                    title: "ダウンロード失敗",
+                    message: error.localizedDescription,
+                    type: .error
+                ))
+            }
+        }
     }
 
     private func handleItemTap(_ item: DriveItem) {
@@ -860,12 +958,7 @@ struct DriveItemListRow: View {
 
 struct AlertsAndSheetsModifier: ViewModifier {
     @Binding var showingSignOutAlert: Bool
-    @Binding var showingBulkDownloadConfirmation: Bool
     @Binding var selectedItem: DriveItem?
-    @Binding var selectedFolderForBulk: DriveItem?
-    @Binding var showingCascadeDownloadConfirmation: Bool
-    @Binding var selectedItemForCascade: DriveItem?
-    @Binding var showingTrialDownloadConfirmation: Bool
     @Binding var readingSession: LibraryView.ComicSession?
 
     @Environment(StatusCenter.self) private var statusCenter
@@ -1082,128 +1175,6 @@ struct AlertsAndSheetsModifier: ViewModifier {
                 }
             } message: {
                 Text("サインアウトしますか？")
-            }
-            .alert("シリーズ一括ダウンロード", isPresented: $showingBulkDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    guard let folder = selectedFolderForBulk else { return }
-                    Task { @MainActor in
-                        do {
-                            let added = try await DownloadQueueManager.shared.enqueueSeries(folder: folder)
-                            if added > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(folder.name) の\(added)件をキューに追加しました",
-                                    type: .info
-                                ))
-                            } else {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                ))
-                            }
-                        } catch {
-                            statusCenter.show(ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            ))
-                        }
-                    }
-                }
-            } message: {
-                if let folder = selectedFolderForBulk {
-                    Text("\(folder.name)内のアーカイブをバックグラウンドで一括ダウンロードします。")
-                }
-            }
-            .alert("この巻以降をダウンロード", isPresented: $showingCascadeDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    guard let item = selectedItemForCascade,
-                          let folderId = libraryViewModel.currentFolderId else { return }
-                    Task { @MainActor in
-                        do {
-                            let (added, total) = try await DownloadQueueManager.shared.enqueueFrom(
-                                folderId: folderId,
-                                item: item
-                            )
-                            if added > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(item.name)以降の\(added)件をキューに追加しました",
-                                    type: .info
-                                ))
-                            } else if total > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                ))
-                            } else {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード失敗",
-                                    message: "対象の巻が見つかりませんでした",
-                                    type: .error
-                                ))
-                            }
-                        } catch {
-                            statusCenter.show(ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            ))
-                        }
-                    }
-                }
-            } message: {
-                if let item = selectedItemForCascade {
-                    Text("「\(item.name)」以降のアーカイブをバックグラウンドでダウンロードします。")
-                }
-            }
-            .alert("試し読みダウンロード", isPresented: $showingTrialDownloadConfirmation) {
-                Button("キャンセル", role: .cancel) {}
-                Button("ダウンロード") {
-                    Task { @MainActor in
-                        do {
-                            let (added, seriesCount, candidateCount) =
-                                try await DownloadQueueManager.shared.enqueueTrialVolumes()
-                            if added > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード開始",
-                                    message: "\(seriesCount)シリーズ中\(added)件の1巻をキューに追加しました",
-                                    type: .info
-                                ))
-                            } else if candidateCount > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード",
-                                    message: "追加できるファイルがありません（ダウンロード済み）",
-                                    type: .info
-                                ))
-                            } else if seriesCount > 0 {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード",
-                                    message: "対象のアーカイブが見つかりませんでした",
-                                    type: .error
-                                ))
-                            } else {
-                                statusCenter.show(ToastData(
-                                    title: "ダウンロード",
-                                    message: "シリーズフォルダが見つかりませんでした",
-                                    type: .info
-                                ))
-                            }
-                        } catch {
-                            statusCenter.show(ToastData(
-                                title: "ダウンロード失敗",
-                                message: error.localizedDescription,
-                                type: .error
-                            ))
-                        }
-                    }
-                }
-            } message: {
-                Text("全シリーズの1巻をバックグラウンドで一括ダウンロードします。シリーズ数が多い場合は時間がかかることがあります。")
             }
             .sheet(item: $selectedItem) { item in
                 // ダウンロードターゲットを決定

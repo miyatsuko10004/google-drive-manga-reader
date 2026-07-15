@@ -80,6 +80,103 @@ final class StatusCenterTests: XCTestCase {
         XCTAssertNil(center.currentToast, "Toast should remain nil; the cancelled auto-dismiss task must not resurrect or double-clear state")
     }
 
+    // MARK: - Action toast eviction policy
+
+    private func makeActionToast(
+        title: String = "Undo",
+        handler: @escaping () -> Void = {}
+    ) -> ToastData {
+        ToastData(
+            title: title,
+            message: "Message",
+            type: .info,
+            action: ToastAction(label: "元に戻す", handler: handler)
+        )
+    }
+
+    /// currentToastが指定タイトルになるまでポーリングする（CI向けに余裕を持たせる）
+    private func waitForToast(
+        _ center: StatusCenter,
+        title: String?,
+        timeout: TimeInterval = 2.0
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while center.currentToast?.title != title && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    func testShow_InfoWhileActionToastVisible_IsParkedAndShownAfterActionToastExpires() async throws {
+        // Arrange
+        let center = StatusCenter(dismissInterval: .milliseconds(80))
+        center.show(makeActionToast(title: "Undo"))
+
+        // Act: アクション付きトーストの表示中にアクション無しトーストを表示する
+        center.show(makeToast(title: "Parked"))
+
+        // Assert: アクション付きトーストは潰されず表示されたまま
+        XCTAssertEqual(center.currentToast?.title, "Undo", "Action toast must not be evicted by an actionless toast")
+
+        // Assert: アクション付きトーストの自動消去後、退避されたトーストが表示される
+        try await waitForToast(center, title: "Parked")
+        XCTAssertEqual(center.currentToast?.title, "Parked", "Parked toast should be promoted after the action toast expires")
+
+        // Assert: 退避トーストにも新しいタイマーが張られ、自動消去される
+        try await waitForToast(center, title: nil)
+        XCTAssertNil(center.currentToast, "Promoted toast should auto-dismiss on its own fresh timer")
+    }
+
+    func testShow_ActionToastWhileActionToastVisible_ReplacesImmediately() {
+        // Arrange
+        let center = StatusCenter(dismissInterval: .seconds(3))
+        center.show(makeActionToast(title: "UndoA"))
+
+        // Act: 新しいアクション付きトーストは即座に置き換える（最新のUndoが勝つ）
+        center.show(makeActionToast(title: "UndoB"))
+
+        // Assert
+        XCTAssertEqual(center.currentToast?.title, "UndoB", "A newer action toast must replace the current one immediately")
+    }
+
+    func testDismissToast_OnActionToast_FlushesPendingInfoToast() async throws {
+        // Arrange
+        let center = StatusCenter(dismissInterval: .milliseconds(80))
+        center.show(makeActionToast(title: "Undo"))
+        center.show(makeToast(title: "Parked"))
+        XCTAssertEqual(center.currentToast?.title, "Undo")
+
+        // Act: タップ消去（dismissToast）でも退避トーストが昇格する
+        center.dismissToast()
+
+        // Assert
+        XCTAssertEqual(center.currentToast?.title, "Parked", "Manual dismiss must promote the parked toast")
+
+        // Assert: 昇格したトーストは新しいタイマーで自動消去される
+        try await waitForToast(center, title: nil)
+        XCTAssertNil(center.currentToast, "Promoted toast should auto-dismiss on a fresh timer")
+    }
+
+    func testActionTap_HandlerIssuedToast_WinsOverParkedToast() {
+        // Arrange: 「元に戻す」実行時に結果報告トーストを出すハンドラー
+        let center = StatusCenter(dismissInterval: .seconds(3))
+        center.show(makeActionToast(title: "Undo", handler: {
+            center.show(ToastData(title: "FollowUp", message: "3件キャンセルしました", type: .info))
+        }))
+        center.show(makeToast(title: "Parked"))
+        XCTAssertEqual(center.currentToast?.title, "Undo")
+
+        // Act: ToastViewのアクションボタンと同じ順序（dismiss → ハンドラー実行）を再現する
+        let action = center.currentToast?.action
+        XCTAssertNotNil(action)
+        center.dismissToast()
+        action?.handler()
+
+        // Assert: ハンドラー発のトーストが表示スロットを勝ち取る。
+        // 退避トーストはdismiss時に一瞬昇格するが、直後にハンドラー発トーストへ
+        // 置き換えられて破棄される（アクション実行結果の報告を優先する仕様）
+        XCTAssertEqual(center.currentToast?.title, "FollowUp", "Handler-issued toast must win the visible slot over the parked toast")
+    }
+
     func testShowDownloadQueue_SetsIsDownloadQueuePresented() {
         // Arrange
         let center = StatusCenter()
