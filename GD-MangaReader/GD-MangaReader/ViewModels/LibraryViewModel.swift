@@ -117,26 +117,53 @@ final class LibraryViewModel {
     }
     
     // MARK: - Sorting and View Mode
-    
+
     /// ソートオプション
+    /// rawValueはUserDefaultsへの永続化キーとして使うため、表示ラベルとは分離して
+    /// 安定した識別子にしている（ラベル変更で保存済み設定が無効にならないようにする）
     enum SortOption: String, CaseIterable, Identifiable {
-        case nameAsc = "名前 (A-Z)"
-        case nameDesc = "名前 (Z-A)"
-        case dateNewest = "追加日 (新しい順)"
-        case dateOldest = "追加日 (古い順)"
-        
+        case nameAsc
+        case nameDesc
+        case dateNewest
+        case dateOldest
+
         var id: String { self.rawValue }
+
+        /// UI表示用ラベル
+        var label: String {
+            switch self {
+            case .nameAsc: return "名前 (A-Z)"
+            case .nameDesc: return "名前 (Z-A)"
+            case .dateNewest: return "追加日 (新しい順)"
+            case .dateOldest: return "追加日 (古い順)"
+            }
+        }
     }
-    
+
     var sortOption: SortOption = .nameAsc {
-        didSet { updateFilteredItems() }
+        didSet {
+            // init中の復元代入では副作用（再保存・フィルタ更新）を起こさない
+            // （下記isRestoringPreferencesのコメント参照）
+            guard !isRestoringPreferences else { return }
+            userDefaults.set(sortOption.rawValue, forKey: Self.sortOptionDefaultsKey)
+            updateFilteredItems()
+        }
     }
-    
+
     /// 表示モード
+    /// rawValueはUserDefaultsへの永続化キー（SortOptionと同じ方針）
     enum ViewMode: String, CaseIterable {
-        case grid = "グリッド"
-        case list = "リスト"
-        
+        case grid
+        case list
+
+        /// UI表示用ラベル
+        var label: String {
+            switch self {
+            case .grid: return "グリッド"
+            case .list: return "リスト"
+            }
+        }
+
         var icon: String {
             switch self {
             case .grid: return "square.grid.2x2"
@@ -144,8 +171,31 @@ final class LibraryViewModel {
             }
         }
     }
-    
-    var viewMode: ViewMode = .grid
+
+    var viewMode: ViewMode = .grid {
+        didSet {
+            // init中の復元代入では副作用（再保存）を起こさない
+            // （下記isRestoringPreferencesのコメント参照）
+            guard !isRestoringPreferences else { return }
+            userDefaults.set(viewMode.rawValue, forKey: Self.viewModeDefaultsKey)
+        }
+    }
+
+    // MARK: - Persistence
+
+    /// ソート順・表示モードの永続化キー
+    static let sortOptionDefaultsKey = "library.sortOption"
+    static let viewModeDefaultsKey = "library.viewMode"
+
+    private let userDefaults: UserDefaults
+
+    /// init中の設定復元でdidSetの副作用を抑止するフラグ。
+    /// @Observableマクロは格納プロパティをアクセサ付きに書き換えるため、
+    /// 通常のSwiftクラスと異なり、initでの代入でもdidSetが発火する。
+    /// このフラグがないと、復元のたびに同じ値をUserDefaultsへ書き戻し、
+    /// updateFilteredItems()を呼んでしまう（現状は無害だが、didSetに
+    /// 副作用が増えた場合の地雷になるため明示的に抑止する）。
+    private var isRestoringPreferences = false
     
     // MARK: - Dependencies
     
@@ -153,12 +203,26 @@ final class LibraryViewModel {
     
     // MARK: - Initialization
     
-    init(driveService: DriveService? = nil) {
+    init(driveService: DriveService? = nil, userDefaults: UserDefaults = .standard) {
         let service = driveService ?? DriveService()
         self.driveService = service
+        self.userDefaults = userDefaults
         // 初期状態ではまだルートIDが確定していないためnilスタート
         // loadFiles()で確定させる
         self.currentFolderId = nil
+
+        // 保存済みのソート順・表示モードを復元（未保存・不正値はデフォルトのまま）。
+        // @Observableではinit中の代入でもdidSetが発火するため、フラグで副作用を抑止する
+        isRestoringPreferences = true
+        if let saved = userDefaults.string(forKey: Self.sortOptionDefaultsKey),
+           let option = SortOption(rawValue: saved) {
+            self.sortOption = option
+        }
+        if let saved = userDefaults.string(forKey: Self.viewModeDefaultsKey),
+           let mode = ViewMode(rawValue: saved) {
+            self.viewMode = mode
+        }
+        isRestoringPreferences = false
     }
     
     // MARK: - Methods

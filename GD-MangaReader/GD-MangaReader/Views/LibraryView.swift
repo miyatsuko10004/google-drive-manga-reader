@@ -136,8 +136,10 @@ struct LibraryView: View {
     @ViewBuilder
     private var contentLayer: some View {
         VStack(spacing: 0) {
-            offlineHeaderView
-            
+            if authViewModel.isOfflineMode {
+                offlineBannerView
+            }
+
             if libraryViewModel.isLoading && libraryViewModel.items.isEmpty {
                 shimmerLoadingView
             } else if let error = libraryViewModel.errorMessage {
@@ -154,26 +156,90 @@ struct LibraryView: View {
     // MARK: - Subviews
     
     /// ファイル一覧コンテンツ
+    /// ソート・表示モードのコントロールバーはpinnedViewsのセクションヘッダーとして配置する。
+    /// これによりパンくずとアイテム一覧の間という自然な位置に置きつつ、長いリストを
+    /// スクロール中でも画面上部に固定されて操作できる（safeAreaInsetだとおすすめシェルフや
+    /// パンくずより上に来てしまうため、この方式を採用）
     @ViewBuilder
     private var fileListContent: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 recommendationSection
-                
+
                 // パンくずリスト
                 if !libraryViewModel.folderPath.isEmpty {
                     breadcrumbView
                 }
-                
-                itemsSection
-                
-                // さらに読み込み
-                if libraryViewModel.hasMoreItems {
-                    autoLoadMoreView
+
+                Section {
+                    itemsSection
+
+                    // さらに読み込み
+                    if libraryViewModel.hasMoreItems {
+                        autoLoadMoreView
+                    }
+                } header: {
+                    listControlBar
                 }
             }
             .padding()
         }
+    }
+
+    /// ソート・表示モードのコントロールバー
+    private var listControlBar: some View {
+        HStack {
+            // ソート選択（現在のソート順をラベルに表示するMenu）
+            Menu {
+                Picker("並び替え", selection: $libraryViewModel.sortOption) {
+                    ForEach(LibraryViewModel.SortOption.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                    Text(libraryViewModel.sortOption.label)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                }
+                .foregroundColor(.secondary)
+                // タップ領域を確保する（見た目はcaptionのまま）
+                .frame(minHeight: 36)
+                .contentShape(Rectangle())
+                // VoiceOverでは1要素として「並び替え: 現在のソート順」と読み上げる
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("並び替え: \(libraryViewModel.sortOption.label)")
+            }
+
+            Spacer()
+
+            // 表示モード切り替え（2状態のトグル。アイコンは「押すと切り替わる先」を示す）
+            Button {
+                withAnimation {
+                    libraryViewModel.viewMode = (libraryViewModel.viewMode == .grid) ? .list : .grid
+                }
+            } label: {
+                let nextMode: LibraryViewModel.ViewMode =
+                    (libraryViewModel.viewMode == .grid) ? .list : .grid
+                Image(systemName: nextMode.icon)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(
+                libraryViewModel.viewMode == .grid ? "リスト表示に切り替え" : "グリッド表示に切り替え"
+            )
+        }
+        .frame(height: 36)
+        // ピン留め時に下をスクロールするセルを隠すため、画面背景と同じ色を敷く
+        .background(Color(.systemGroupedBackground))
     }
     
     /// おすすめセクション
@@ -264,58 +330,41 @@ struct LibraryView: View {
             }
     }
     
-    /// オフライン制御ヘッダー（インジケータとトグルスイッチ）
-    private var offlineHeaderView: some View {
-        VStack(spacing: 0) {
-            if authViewModel.isOfflineMode {
-                HStack(spacing: 8) {
-                    Image(systemName: "wifi.slash")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                    Text("オフラインモード")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    Spacer()
-                    Text("ダウンロード済みのみ表示")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background(Color.appWarning)
-                .transition(.move(edge: .top).combined(with: .opacity))
+    /// オフラインモードバナー（オフライン時のみ表示）
+    /// 「オンラインに戻す」ボタンで、どの画面階層からでもワンタップで復帰できる
+    private var offlineBannerView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.subheadline)
+                .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("オフラインモード")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Text("ダウンロード済みのみ表示")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.8))
             }
-            
-            HStack {
-                Label {
-                    Text("オフラインモード")
-                        .font(.body)
-                        .fontWeight(.medium)
-                } icon: {
-                    Image(systemName: authViewModel.isOfflineMode ? "wifi.slash" : "wifi")
-                        .foregroundColor(authViewModel.isOfflineMode ? .appWarning : .accentColor)
+            Spacer()
+            Button {
+                withAnimation {
+                    authViewModel.isOfflineMode = false
                 }
-                
-                Spacer()
-                
-                Toggle("", isOn: Binding(
-                    get: { authViewModel.isOfflineMode },
-                    set: { newValue in
-                        withAnimation {
-                            authViewModel.isOfflineMode = newValue
-                        }
-                    }
-                ))
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: .appWarning))
+            } label: {
+                Text("オンラインに戻す")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.white.opacity(0.25)))
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 16)
-            .background(Color(.secondarySystemGroupedBackground))
-            
-            Divider()
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .background(Color.appWarning)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
     
     /// スケルトンUI（Shimmer）
@@ -383,23 +432,21 @@ struct LibraryView: View {
         
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                // 表示切り替え
-                Picker("表示モード", selection: $libraryViewModel.viewMode) {
-                    ForEach(LibraryViewModel.ViewMode.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon)
-                            .tag(mode)
+                // オフラインモード切り替え
+                // （常設のトグル行は廃止し、メニュー内トグル＋オフライン時のバナーに集約）
+                Toggle(isOn: Binding(
+                    get: { authViewModel.isOfflineMode },
+                    set: { newValue in
+                        withAnimation {
+                            authViewModel.isOfflineMode = newValue
+                        }
                     }
+                )) {
+                    Label("オフラインモード", systemImage: "wifi.slash")
                 }
-                
-                // 並び替えオプション
-                Picker("並び替え", selection: $libraryViewModel.sortOption) {
-                    ForEach(LibraryViewModel.SortOption.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                
+
                 Divider()
-                
+
                 // ユーザー情報
                 Section {
                     Text(authViewModel.userName)
