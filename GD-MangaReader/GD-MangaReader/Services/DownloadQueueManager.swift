@@ -197,6 +197,7 @@ final class DownloadQueueManager {
         let task = DownloadQueueTask(target: target)
         tasks.append(task)
         beginBackgroundTaskIfNeeded()
+        requestNotificationAuthorizationIfNeeded()
         processQueue()
         return task
     }
@@ -221,6 +222,7 @@ final class DownloadQueueManager {
 
         if added > 0 {
             beginBackgroundTaskIfNeeded()
+            requestNotificationAuthorizationIfNeeded()
             processQueue()
         }
         return added
@@ -380,6 +382,15 @@ final class DownloadQueueManager {
 
     // MARK: - Private
 
+    /// 通知許可のリクエストを「初めてダウンロードをキューに入れたとき」に遅延実行する。
+    /// アプリ起動時には出さず、実際にダウンロードするユーザーにだけ許可ダイアログを見せる。
+    /// 許可済み・拒否済みの場合はNotificationService側で何もしない
+    private func requestNotificationAuthorizationIfNeeded() {
+        Task {
+            await NotificationService.shared.requestAuthorizationIfNeeded()
+        }
+    }
+
     /// キューが完全に停止していれば、前バッチの終了済みタスクをクリア
     private func clearFinishedIfIdle() {
         if pendingTasks.isEmpty {
@@ -461,6 +472,13 @@ final class DownloadQueueManager {
             // 完了を待ってからバックグラウンドタスクを終了する
             Task {
                 await thumbnailTask?.value
+                // バックグラウンド時のみローカル通知を発行する（フォアグラウンドでは
+                // onQueueDrained経由のトーストが担当。判定はNotificationService側で行う）。
+                // 猶予時間が残っているうちに発行できるよう、バックグラウンドタスク終了前に呼ぶ。
+                // ただしこの順序はベストエフォート: OSの期限切れハンドラは独立したTaskとして
+                // 走るため、サスペンションポイントで割り込まれる可能性があり、通知の発行完了が
+                // サスペンド前に終わることの厳密な保証はない
+                await NotificationService.shared.postDownloadCompletion(completed: completed, failed: failed)
                 endBackgroundTaskIfNeeded()
                 onQueueDrained?(completed, failed)
             }

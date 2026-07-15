@@ -4,6 +4,7 @@
 // Google Drive内のファイルブラウザ画面
 
 import SwiftUI
+import UIKit
 import Kingfisher
 
 /// Driveファイルブラウザ画面
@@ -82,6 +83,9 @@ struct LibraryView: View {
             }
             downloadQueue.onQueueDrained = { completed, failed in
                 guard completed + failed > 0 else { return }
+                // 非アクティブ時はDownloadQueueManagerが発行するローカル通知が担当するため、
+                // トースト（＋ハプティクス）はフォアグラウンドでのみ表示する（二重フィードバック防止）
+                guard UIApplication.shared.applicationState == .active else { return }
                 if failed == 0 {
                     statusCenter.show(ToastData(
                         title: "ダウンロード完了",
