@@ -1,0 +1,26 @@
+--- GD-MangaReader/GD-MangaReader/Models/DriveItem.swift
++++ GD-MangaReader/GD-MangaReader/Models/DriveItem.swift
+@@ -237,7 +237,8 @@
+         createdTime: Date(),
+         modifiedTime: Date(),
+         width: nil,
+         height: nil
+     )
+
+     static let mockZipFile = DriveItem(
+@@ -248,7 +249,8 @@
+         createdTime: Date(),
+         modifiedTime: Date(),
+         width: nil,
+         height: nil
+     )
+
+     static let mockRarFile = DriveItem(
+@@ -259,7 +261,8 @@
+         createdTime: Date(),
+         modifiedTime: Date(),
+         width: nil,
+         height: nil
+     )
+
+     static let mockItems: [DriveItem] = [
