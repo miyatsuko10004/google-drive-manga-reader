@@ -1,3 +1,7 @@
 ## 2024-07-09 - Filter Before Sorting in LibraryViewModel
 **Learning:** Found a classic performance bottleneck where `items` are sorted first (O(N log N)) and then filtered by `searchText` (O(N)). When users type in a search box, doing this on every keystroke for large folders (like a root folder with hundreds/thousands of archives) can cause main thread hitching.
 **Action:** Filter the array first based on `searchText`, and only apply the expensive sort (`localizedStandardCompare`) on the resulting subset. This reduces the time complexity to O(N) + O(K log K) where K is the number of matched items, providing a measurable UI responsiveness boost when searching.
+
+## 2024-07-16 - Cache Regex Parsing Result in Stored Property for SwiftUI Views
+**Learning:** In SwiftUI, `LazyVGrid` and `LazyVStack` will re-evaluate view models during scrolling. If a model property is a computed property that executes complex Regular Expressions (like parsing display names with strings combinations), it will cause significant stutter during fast scrolling because those Regexes compile and run repeatedly on the UI thread for every view cell appearing/disappearing.
+**Action:** Replaced the computed property `displayName: MangaDisplayName` in `DriveItem` with a stored property and initialized it via a custom initializer `init(...)`. This shifts the expensive string parsing and regex matching to the time of fetching/decoding the items, which often happens off the main thread or at least only once per item, drastically reducing CPU overhead during view rendering.

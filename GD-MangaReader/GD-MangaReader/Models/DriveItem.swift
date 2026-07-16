@@ -37,6 +37,50 @@ struct DriveItem: Identifiable, Hashable, Sendable {
     /// 画像の高さ（オプション）
     let height: Int?
     
+    /// 表示用に分解した名前（アーカイブは拡張子を除いてから解析する）
+    /// 以前はComputed Propertyだったが、スクロール時の再レンダリングのたびに
+    /// 重い正規表現処理が走るのを防ぐため、初期化時に1度だけ計算するStored Propertyに変更
+    let displayName: MangaDisplayName
+
+    // MARK: - Initialization
+
+    init(
+        id: String,
+        name: String,
+        mimeType: String,
+        size: Int64?,
+        thumbnailURL: URL?,
+        parentId: String?,
+        createdTime: Date?,
+        modifiedTime: Date?,
+        width: Int?,
+        height: Int?
+    ) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.size = size
+        self.thumbnailURL = thumbnailURL
+        self.parentId = parentId
+        self.createdTime = createdTime
+        self.modifiedTime = modifiedTime
+        self.width = width
+        self.height = height
+
+        // isArchiveと同等の判定ロジック（selfを参照できないためローカルで判定）
+        let ext = (name as NSString).pathExtension.lowercased()
+        let isArchiveType = Config.SupportedFormats.archiveExtensions.contains(ext) ||
+            mimeType == "application/zip" ||
+            mimeType == "application/x-zip-compressed" ||
+            mimeType == "application/x-rar-compressed" ||
+            mimeType == "application/vnd.rar" ||
+            mimeType == "application/x-cbz" ||
+            mimeType == "application/x-cbr"
+
+        let base = isArchiveType ? (name as NSString).deletingPathExtension : name
+        self.displayName = MangaDisplayName(parsing: base)
+    }
+
     // MARK: - Computed Properties
     
     /// フォルダかどうか
@@ -167,30 +211,24 @@ struct MangaDisplayName: Hashable, Sendable {
     }
 }
 
-extension DriveItem {
-    /// 表示用に分解した名前（アーカイブは拡張子を除いてから解析する）
-    var displayName: MangaDisplayName {
-        let base = isArchive ? (name as NSString).deletingPathExtension : name
-        return MangaDisplayName(parsing: base)
-    }
-}
-
 // MARK: - LocalComic Extension
 
 extension DriveItem {
     /// LocalComicからDriveItemオブジェクトを生成するマッピングイニシャライザ
     /// - Parameter localComic: ダウンロード済みの漫画データ
     init(from localComic: LocalComic) {
-        self.id = localComic.driveFileId
-        self.name = localComic.title
-        self.mimeType = "application/zip" // 一括アーカイブを模倣
-        self.size = localComic.originalFileSize
-        self.thumbnailURL = localComic.imagePaths.first // ローカルの絶対URLをサムネイルとして使用
-        self.parentId = nil
-        self.createdTime = localComic.downloadedAt
-        self.modifiedTime = localComic.lastReadAt
-        self.width = nil
-        self.height = nil
+        self.init(
+            id: localComic.driveFileId,
+            name: localComic.title,
+            mimeType: "application/zip", // 一括アーカイブを模倣
+            size: localComic.originalFileSize,
+            thumbnailURL: localComic.imagePaths.first, // ローカルの絶対URLをサムネイルとして使用
+            parentId: nil,
+            createdTime: localComic.downloadedAt,
+            modifiedTime: localComic.lastReadAt,
+            width: nil,
+            height: nil
+        )
     }
 }
 
