@@ -979,10 +979,11 @@ final class ReaderViewModel {
         }
     }
     
+    private static let nextVolumePrefixRegex = try! NSRegularExpression(pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$", options: .caseInsensitive)
+
     private func checkForNextVolume() async {
         let currentTitle = source.title
-        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
-        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        let prefix = Self.nextVolumePrefixRegex.stringByReplacingMatches(in: currentTitle, range: NSRange(currentTitle.startIndex..., in: currentTitle), withTemplate: "")
         
         if Task.isCancelled { return }
         

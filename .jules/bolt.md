@@ -1,3 +1,6 @@
 ## 2024-07-09 - Filter Before Sorting in LibraryViewModel
 **Learning:** Found a classic performance bottleneck where `items` are sorted first (O(N log N)) and then filtered by `searchText` (O(N)). When users type in a search box, doing this on every keystroke for large folders (like a root folder with hundreds/thousands of archives) can cause main thread hitching.
 **Action:** Filter the array first based on `searchText`, and only apply the expensive sort (`localizedStandardCompare`) on the resulting subset. This reduces the time complexity to O(N) + O(K log K) where K is the number of matched items, providing a measurable UI responsiveness boost when searching.
+## 2024-05-30 - Optimized regex compilations inside Swift loops
+**Learning:** In Swift, methods like `range(of:options: .regularExpression)` and `replacingOccurrences(of:options: [.regularExpression])` compile the regex engine dynamically on every single call. In views with lists or frequently updated states, this dynamic compilation creates a notable CPU bottleneck.
+**Action:** When a regex is used inside loops or repeatedly called properties, always extract it to a static property using `NSRegularExpression(pattern:)` and use its matching methods (e.g. `firstMatch` or `stringByReplacingMatches`).
