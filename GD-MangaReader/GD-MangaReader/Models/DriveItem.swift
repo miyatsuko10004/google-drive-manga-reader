@@ -123,7 +123,7 @@ struct MangaDisplayName: Hashable, Sendable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private static let volumeRegex = try! NSRegularExpression(pattern: "第[0-9０-９]+巻$")
+    private static let volumeRegex = try? NSRegularExpression(pattern: "第[0-9０-９]+巻$")
 
     init(parsing rawName: String) {
         var working = rawName.trimmingCharacters(in: .whitespaces)
@@ -156,7 +156,8 @@ struct MangaDisplayName: Hashable, Sendable {
         // 末尾の「第〇〇巻」を巻数として切り出す
         var volume: String?
         let nsRange = NSRange(working.startIndex..<working.endIndex, in: working)
-        if let match = Self.volumeRegex.firstMatch(in: working, range: nsRange),
+        if let regex = Self.volumeRegex,
+           let match = regex.firstMatch(in: working, range: nsRange),
            let matchRange = Range(match.range, in: working) {
             let rest = working[..<matchRange.lowerBound].trimmingCharacters(in: .whitespaces)
             if !rest.isEmpty {

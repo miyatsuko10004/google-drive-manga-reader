@@ -400,21 +400,23 @@ final class LibraryViewModel {
         nextRecommendedComics = recommendations
     }
     
-    private static let seriesTitleBracketRegex = try! NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: .caseInsensitive)
-    private static let seriesTitleVolumeRegex = try! NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: .caseInsensitive)
+    private static let seriesTitleBracketRegex = try? NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: .caseInsensitive)
+    private static let seriesTitleVolumeRegex = try? NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: .caseInsensitive)
 
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {
         var result = title
 
         let range1 = NSRange(result.startIndex..<result.endIndex, in: result)
-        if let match = Self.seriesTitleBracketRegex.firstMatch(in: result, range: range1),
+        if let regex = Self.seriesTitleBracketRegex,
+           let match = regex.firstMatch(in: result, range: range1),
            let matchRange = Range(match.range, in: result) {
             result = String(result[..<matchRange.lowerBound])
         }
 
         let range2 = NSRange(result.startIndex..<result.endIndex, in: result)
-        if let match = Self.seriesTitleVolumeRegex.firstMatch(in: result, range: range2),
+        if let regex = Self.seriesTitleVolumeRegex,
+           let match = regex.firstMatch(in: result, range: range2),
            let matchRange = Range(match.range, in: result) {
             result = String(result[..<matchRange.lowerBound])
         }
