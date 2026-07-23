@@ -123,6 +123,8 @@ struct MangaDisplayName: Hashable, Sendable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    private static let volumeRegex = try? NSRegularExpression(pattern: "第[0-9０-９]+巻$")
+
     init(parsing rawName: String) {
         var working = rawName.trimmingCharacters(in: .whitespaces)
         var author: String?
@@ -137,8 +139,8 @@ struct MangaDisplayName: Hashable, Sendable {
                 .trimmingCharacters(in: .whitespaces)
             let rest = working[..<open].trimmingCharacters(in: .whitespaces)
             if !candidate.isEmpty && !rest.isEmpty {
-                author = candidate
-                working = rest
+                author = String(candidate)
+                working = String(rest)
             }
         } else if working.hasPrefix("["), let close = working.firstIndex(of: "]") {
             let candidate = working[working.index(after: working.startIndex)..<close]
@@ -146,18 +148,21 @@ struct MangaDisplayName: Hashable, Sendable {
             let rest = working[working.index(after: close)...]
                 .trimmingCharacters(in: .whitespaces)
             if !candidate.isEmpty && !rest.isEmpty {
-                author = candidate
-                working = rest
+                author = String(candidate)
+                working = String(rest)
             }
         }
 
         // 末尾の「第〇〇巻」を巻数として切り出す
         var volume: String?
-        if let range = working.range(of: "第[0-9０-９]+巻$", options: .regularExpression) {
-            let rest = working[..<range.lowerBound].trimmingCharacters(in: .whitespaces)
+        let nsRange = NSRange(working.startIndex..<working.endIndex, in: working)
+        if let regex = Self.volumeRegex,
+           let match = regex.firstMatch(in: working, range: nsRange),
+           let matchRange = Range(match.range, in: working) {
+            let rest = working[..<matchRange.lowerBound].trimmingCharacters(in: .whitespaces)
             if !rest.isEmpty {
-                volume = String(working[range])
-                working = rest
+                volume = String(working[matchRange])
+                working = String(rest)
             }
         }
 
