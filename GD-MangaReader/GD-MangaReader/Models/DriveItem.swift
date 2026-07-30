@@ -108,6 +108,10 @@ struct DriveItem: Identifiable, Hashable, Sendable {
 /// 「作品名[作者名]」（シリーズフォルダ）や「[作者名]作品名 第〇〇巻」（アーカイブ）形式の
 /// 名前を作品名・作者名・巻数に分解した表示用モデル
 struct MangaDisplayName: Hashable, Sendable {
+    // ⚡ Bolt Performance: Precompile regex to avoid main thread blocking on large lists
+    // swiftlint:disable:next force_try
+    private static let volumeRegex = try! NSRegularExpression(pattern: "第[0-9０-９]+巻$")
+
     /// 作品名（分解できない名前はそのまま全体が入る）
     let title: String
 
@@ -153,7 +157,8 @@ struct MangaDisplayName: Hashable, Sendable {
 
         // 末尾の「第〇〇巻」を巻数として切り出す
         var volume: String?
-        if let range = working.range(of: "第[0-9０-９]+巻$", options: .regularExpression) {
+        if let match = Self.volumeRegex.firstMatch(in: working, range: NSRange(working.startIndex..., in: working)),
+           let range = Range(match.range, in: working) {
             let rest = working[..<range.lowerBound].trimmingCharacters(in: .whitespaces)
             if !rest.isEmpty {
                 volume = String(working[range])
