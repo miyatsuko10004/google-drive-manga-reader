@@ -717,7 +717,11 @@ enum ReadingMode: String, CaseIterable {
 @Observable
 final class ReaderViewModel {
     // ⚡ Bolt Performance: Precompile regex to avoid main thread blocking on initialization and interactions
-    private static let nextVolumePatternRegex = try! NSRegularExpression(pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$", options: .caseInsensitive)
+    // swiftlint:disable:next force_try
+    private static let nextVolumePatternRegex = try! NSRegularExpression(
+        pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$",
+        options: .caseInsensitive
+    )
 
     // MARK: - Settings (Persistent)
     

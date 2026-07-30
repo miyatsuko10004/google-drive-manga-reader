@@ -52,8 +52,16 @@ struct LRUCache<Key: Hashable, Value> {
 @Observable
 final class LibraryViewModel {
     // ⚡ Bolt Performance: Precompile regexes used in filtering to avoid main thread blocking
-    private static let seriesTitleBracketRegex = try! NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: .caseInsensitive)
-    private static let seriesTitleVolumeRegex = try! NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: .caseInsensitive)
+    // swiftlint:disable force_try
+    private static let seriesTitleBracketRegex = try! NSRegularExpression(
+        pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#,
+        options: .caseInsensitive
+    )
+    private static let seriesTitleVolumeRegex = try! NSRegularExpression(
+        pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#,
+        options: .caseInsensitive
+    )
+    // swiftlint:enable force_try
 
     // MARK: - Properties
     

@@ -109,6 +109,7 @@ struct DriveItem: Identifiable, Hashable, Sendable {
 /// 名前を作品名・作者名・巻数に分解した表示用モデル
 struct MangaDisplayName: Hashable, Sendable {
     // ⚡ Bolt Performance: Precompile regex to avoid main thread blocking on large lists
+    // swiftlint:disable:next force_try
     private static let volumeRegex = try! NSRegularExpression(pattern: "第[0-9０-９]+巻$")
 
     /// 作品名（分解できない名前はそのまま全体が入る）
