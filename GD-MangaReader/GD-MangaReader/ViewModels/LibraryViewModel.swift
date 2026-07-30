@@ -51,6 +51,10 @@ struct LRUCache<Key: Hashable, Value> {
 @MainActor
 @Observable
 final class LibraryViewModel {
+    // ⚡ Bolt Performance: Precompile regexes used in filtering to avoid main thread blocking
+    private static let seriesTitleBracketRegex = try! NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: .caseInsensitive)
+    private static let seriesTitleVolumeRegex = try! NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: .caseInsensitive)
+
     // MARK: - Properties
     
     /// オフラインモードが有効かどうか
@@ -402,15 +406,12 @@ final class LibraryViewModel {
     
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {
-        // 数字や巻数表記を簡易的に除去
-        let patterns = [
-            #"\s*[\(\[\{].*?[\)\]\}]$"#, // 末尾の括弧内を除去
-            #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"# // 巻数表記を除去
-        ]
-        
         var result = title
-        for pattern in patterns {
-            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+        let regexes = [Self.seriesTitleBracketRegex, Self.seriesTitleVolumeRegex]
+
+        for regex in regexes {
+            if let match = regex.firstMatch(in: result, range: NSRange(result.startIndex..., in: result)),
+               let range = Range(match.range, in: result) {
                 result = String(result[..<range.lowerBound])
             }
         }
