@@ -979,6 +979,7 @@ final class ReaderViewModel {
         }
     }
     
+    // swiftlint:disable:next force_try
     private static let nextVolumePatternRegex = try! NSRegularExpression(
         pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$",
         options: [.caseInsensitive]

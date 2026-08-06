@@ -123,6 +123,7 @@ struct MangaDisplayName: Hashable, Sendable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    // swiftlint:disable:next force_try
     private static let volumeRegex = try! NSRegularExpression(pattern: "第[0-9０-９]+巻$")
 
     init(parsing rawName: String) {

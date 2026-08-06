@@ -400,10 +400,12 @@ final class LibraryViewModel {
         nextRecommendedComics = recommendations
     }
     
+    // swiftlint:disable force_try
     private static let seriesTitleSuffixRegexes: [NSRegularExpression] = [
         try! NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: [.caseInsensitive]), // 末尾の括弧内を除去
         try! NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: [.caseInsensitive]) // 巻数表記を除去
     ]
+    // swiftlint:enable force_try
 
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {
