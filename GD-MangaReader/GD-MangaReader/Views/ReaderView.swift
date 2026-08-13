@@ -717,10 +717,16 @@ enum ReadingMode: String, CaseIterable {
 @Observable
 final class ReaderViewModel {
     // Regex for matching volume pattern at the end of the string
-    private static let volumePatternRegex = try! NSRegularExpression(
-        pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$",
-        options: [.caseInsensitive]
-    )
+    private static let volumePatternRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(
+                pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$",
+                options: [.caseInsensitive]
+            )
+        } catch {
+            fatalError("Failed to compile volumePatternRegex: \(error)")
+        }
+    }()
 
     // MARK: - Settings (Persistent)
     

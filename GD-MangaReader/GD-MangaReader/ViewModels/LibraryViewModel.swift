@@ -401,10 +401,16 @@ final class LibraryViewModel {
     }
     
     // タイトルからシリーズ名を抽出するための事前コンパイル済み正規表現
-    private static let seriesTitleExtractionRegexes: [NSRegularExpression] = [
-        try! NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: [.caseInsensitive]), // 末尾の括弧内を除去
-        try! NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: [.caseInsensitive]) // 巻数表記を除去
-    ]
+    private static let seriesTitleExtractionRegexes: [NSRegularExpression] = {
+        do {
+            return [
+                try NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: [.caseInsensitive]), // 末尾の括弧内を除去
+                try NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: [.caseInsensitive]) // 巻数表記を除去
+            ]
+        } catch {
+            fatalError("Failed to compile seriesTitleExtractionRegexes: \(error)")
+        }
+    }()
 
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {

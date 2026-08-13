@@ -124,7 +124,13 @@ struct MangaDisplayName: Hashable, Sendable {
     }
 
     // Regex for matching volume pattern at the end of the string
-    private static let volumeRegex = try! NSRegularExpression(pattern: "第[0-9０-９]+巻$")
+    private static let volumeRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: "第[0-9０-９]+巻$")
+        } catch {
+            fatalError("Failed to compile volumeRegex: \(error)")
+        }
+    }()
 
     init(parsing rawName: String) {
         var working = rawName.trimmingCharacters(in: .whitespaces)
