@@ -51,6 +51,17 @@ struct LRUCache<Key: Hashable, Value> {
 @MainActor
 @Observable
 final class LibraryViewModel {
+    private static let seriesTitleRegexes: [NSRegularExpression] = {
+        do {
+            return [
+                try NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: .caseInsensitive), // 末尾の括弧内を除去
+                try NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: .caseInsensitive) // 巻数表記を除去
+            ]
+        } catch {
+            fatalError("Failed to compile seriesTitleRegexes: \(error)")
+        }
+    }()
+
     // MARK: - Properties
     
     /// オフラインモードが有効かどうか
@@ -402,15 +413,11 @@ final class LibraryViewModel {
     
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {
-        // 数字や巻数表記を簡易的に除去
-        let patterns = [
-            #"\s*[\(\[\{].*?[\)\]\}]$"#, // 末尾の括弧内を除去
-            #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"# // 巻数表記を除去
-        ]
-        
         var result = title
-        for pattern in patterns {
-            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+        for regex in Self.seriesTitleRegexes {
+            let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+            if let match = regex.firstMatch(in: result, options: [], range: nsRange),
+               let range = Range(match.range, in: result) {
                 result = String(result[..<range.lowerBound])
             }
         }
