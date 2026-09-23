@@ -716,6 +716,18 @@ enum ReadingMode: String, CaseIterable {
 @MainActor
 @Observable
 final class ReaderViewModel {
+    // Regex for matching volume pattern at the end of the string
+    private static let volumePatternRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(
+                pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$",
+                options: [.caseInsensitive]
+            )
+        } catch {
+            fatalError("Failed to compile volumePatternRegex: \(error)")
+        }
+    }()
+
     // MARK: - Settings (Persistent)
     
     var isRightToLeft: Bool {
@@ -981,8 +993,13 @@ final class ReaderViewModel {
     
     private func checkForNextVolume() async {
         let currentTitle = source.title
-        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
-        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        let range = NSRange(currentTitle.startIndex..<currentTitle.endIndex, in: currentTitle)
+        let prefix = Self.volumePatternRegex.stringByReplacingMatches(
+            in: currentTitle,
+            options: [],
+            range: range,
+            withTemplate: ""
+        )
         
         if Task.isCancelled { return }
         

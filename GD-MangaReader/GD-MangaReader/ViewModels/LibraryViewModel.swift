@@ -400,17 +400,25 @@ final class LibraryViewModel {
         nextRecommendedComics = recommendations
     }
     
+    // タイトルからシリーズ名を抽出するための事前コンパイル済み正規表現
+    private static let seriesTitleExtractionRegexes: [NSRegularExpression] = {
+        do {
+            return [
+                try NSRegularExpression(pattern: #"\s*[\(\[\{].*?[\)\]\}]$"#, options: [.caseInsensitive]), // 末尾の括弧内を除去
+                try NSRegularExpression(pattern: #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"#, options: [.caseInsensitive]) // 巻数表記を除去
+            ]
+        } catch {
+            fatalError("Failed to compile seriesTitleExtractionRegexes: \(error)")
+        }
+    }()
+
     /// タイトルからシリーズ名を抽出（巻数などを除去）
     private func extractSeriesTitle(from title: String) -> String {
-        // 数字や巻数表記を簡易的に除去
-        let patterns = [
-            #"\s*[\(\[\{].*?[\)\]\}]$"#, // 末尾の括弧内を除去
-            #"\s*(?:vol\.?|#|第)?\s*\d+(?:\s*[巻回話])?.*$"# // 巻数表記を除去
-        ]
-        
         var result = title
-        for pattern in patterns {
-            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+        for regex in Self.seriesTitleExtractionRegexes {
+            let resultRange = NSRange(result.startIndex..<result.endIndex, in: result)
+            if let match = regex.firstMatch(in: result, range: resultRange),
+               let range = Range(match.range, in: result) {
                 result = String(result[..<range.lowerBound])
             }
         }
