@@ -979,10 +979,19 @@ final class ReaderViewModel {
         }
     }
     
+    private static let nextVolumeTitleRegex: NSRegularExpression = {
+        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
+        do {
+            return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        } catch {
+            fatalError("Failed to compile regex for next volume: \(error)")
+        }
+    }()
+
     private func checkForNextVolume() async {
         let currentTitle = source.title
-        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
-        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        let range = NSRange(currentTitle.startIndex..<currentTitle.endIndex, in: currentTitle)
+        let prefix = Self.nextVolumeTitleRegex.stringByReplacingMatches(in: currentTitle, options: [], range: range, withTemplate: "")
         
         if Task.isCancelled { return }
         
