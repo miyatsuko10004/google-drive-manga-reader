@@ -15,10 +15,10 @@ roles:
     cli: antigravity         # herdr の agent kind は agy
     model: gemini-3.8-flash-high
     escalate: gemini-3.1-pro-high
-# test:                          # 設定すると wt.sh merge が統合後に実行し、失敗なら統合を取り消す (未設定ならテストなしで統合)
-#   command: "python3 -m unittest discover -s tests"
+test:                            # wt.sh merge が統合後に実行し、失敗なら統合を取り消す (CI の ios.yml と同じ)
+  command: "cd GD-MangaReader && xcodebuild test -scheme GD-MangaReader -project GD-MangaReader.xcodeproj -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO -quiet"
 parallel:
-  max_coders: 2              # 並列 coder の上限 (coder-a, coder-b ...)。worktree は .worktrees/ 配下
+  max_coders: 1              # 並列 coder の上限 (coder-a, coder-b ...)。worktree は .worktrees/ 配下
 ops:
   mode: subagent             # subagent | pane | direct
   model: haiku
