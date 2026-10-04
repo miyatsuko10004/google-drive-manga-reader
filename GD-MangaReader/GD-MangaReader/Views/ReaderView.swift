@@ -716,13 +716,6 @@ enum ReadingMode: String, CaseIterable {
 @MainActor
 @Observable
 final class ReaderViewModel {
-    private static let nextVolumeRegex: NSRegularExpression = {
-        do {
-            return try NSRegularExpression(pattern: "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$", options: [.caseInsensitive])
-        } catch {
-            fatalError("Invalid regex pattern: \(error)")
-        }
-    }()
     // MARK: - Settings (Persistent)
     
     var isRightToLeft: Bool {
@@ -988,8 +981,8 @@ final class ReaderViewModel {
     
     private func checkForNextVolume() async {
         let currentTitle = source.title
-        let nsRange = NSRange(currentTitle.startIndex..<currentTitle.endIndex, in: currentTitle)
-        let prefix = Self.nextVolumeRegex.stringByReplacingMatches(in: currentTitle, options: [], range: nsRange, withTemplate: "")
+        let pattern = "(\\s*第?\\d+[巻]?|\\s*Vol\\.?\\s*\\d+|\\s*\\(\\d+\\)|\\s+\\d+)$"
+        let prefix = currentTitle.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
         
         if Task.isCancelled { return }
         
