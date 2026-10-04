@@ -1,0 +1,201 @@
+name: Distribute (Firebase App Distribution)
+
+# 手動実行のみ。pull_request / push / pull_request_target では絶対に動かさない
+# （署名用シークレットを外部 PR から読めないようにするため）。
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "リリースノート（任意）"
+        required: false
+        default: ""
+      groups:
+        description: "配信先テスターグループ（カンマ区切りのグループ alias）"
+        required: false
+        default: "testers"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribute
+  cancel-in-progress: false
+
+jobs:
+  distribute:
+    name: Build and Distribute
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEFAULT_BUNDLE_ID: com.example.GD-MangaReader
+
+    steps:
+      - name: Check required secrets
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          GID_CLIENT_ID: ${{ secrets.GID_CLIENT_ID }}
+          GID_REVERSED_CLIENT_ID: ${{ secrets.GID_REVERSED_CLIENT_ID }}
+        run: |
+          missing=0
+          for name in APPLE_CERT_P12_BASE64 APPLE_CERT_PASSWORD PROVISIONING_PROFILE_BASE64 \
+                      APPLE_TEAM_ID FIREBASE_APP_ID FIREBASE_SERVICE_ACCOUNT_JSON \
+                      GID_CLIENT_ID GID_REVERSED_CLIENT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::必要な Secret '${name}' が未設定です。docs/firebase-distribution.md を参照して登録してください。"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew install xcodegen xcpretty
+          npm install -g firebase-tools
+
+      - name: Generate Secrets.xcconfig and project
+        env:
+          GID_CLIENT_ID: ${{ secrets.GID_CLIENT_ID }}
+          GID_REVERSED_CLIENT_ID: ${{ secrets.GID_REVERSED_CLIENT_ID }}
+        working-directory: GD-MangaReader
+        run: |
+          {
+            echo "GID_CLIENT_ID = ${GID_CLIENT_ID}"
+            echo "GID_REVERSED_CLIENT_ID = ${GID_REVERSED_CLIENT_ID}"
+          } > Secrets.xcconfig
+          xcodegen generate
+
+      - name: Set up signing (temporary keychain and provisioning profile)
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="${RUNNER_TEMP}/distribute.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "::add-mask::${KEYCHAIN_PASSWORD}"
+
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "${RUNNER_TEMP}/cert.p12"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "${RUNNER_TEMP}/profile.mobileprovision"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "${RUNNER_TEMP}/cert.p12" -P "$APPLE_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          # プロファイルの UUID / 名前を取り出して配置
+          security cms -D -i "${RUNNER_TEMP}/profile.mobileprovision" > "${RUNNER_TEMP}/profile.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "${RUNNER_TEMP}/profile.plist")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "${RUNNER_TEMP}/profile.plist")"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "${RUNNER_TEMP}/profile.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+
+          {
+            echo "KEYCHAIN_PATH=${KEYCHAIN_PATH}"
+            echo "PROFILE_NAME=${PROFILE_NAME}"
+          } >> "$GITHUB_ENV"
+          echo "Provisioning profile: ${PROFILE_NAME}"
+
+      - name: Archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID_SECRET: ${{ secrets.BUNDLE_ID }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        working-directory: GD-MangaReader
+        run: |
+          set -euo pipefail
+          BUNDLE_ID="${BUNDLE_ID_SECRET:-$DEFAULT_BUNDLE_ID}"
+          echo "BUNDLE_ID=${BUNDLE_ID}" >> "$GITHUB_ENV"
+          xcodebuild archive \
+            -project GD-MangaReader.xcodeproj \
+            -scheme GD-MangaReader \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${RUNNER_TEMP}/GD-MangaReader.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain ${KEYCHAIN_PATH}" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            | xcpretty
+          exit "${PIPESTATUS[0]}"
+
+      - name: Export IPA (ad-hoc)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>teamID</key>
+              <string>${APPLE_TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${BUNDLE_ID}</key>
+                  <string>${PROFILE_NAME}</string>
+              </dict>
+              <key>compileBitcode</key>
+              <false/>
+              <key>stripSwiftSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "${RUNNER_TEMP}/GD-MangaReader.xcarchive" \
+            -exportOptionsPlist "${RUNNER_TEMP}/ExportOptions.plist" \
+            -exportPath "${RUNNER_TEMP}/export"
+          ls "${RUNNER_TEMP}/export"
+
+      - name: Distribute to Firebase App Distribution
+        env:
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          GROUPS_INPUT: ${{ inputs.groups }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          SA_FILE="${RUNNER_TEMP}/firebase-sa.json"
+          trap 'rm -f "$SA_FILE"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$SA_FILE"
+          chmod 600 "$SA_FILE"
+          export GOOGLE_APPLICATION_CREDENTIALS="$SA_FILE"
+
+          NOTES="${RELEASE_NOTES:-Build ${BUILD_NUMBER} (${GITHUB_SHA::7}) from ${GITHUB_REF_NAME}}"
+          firebase appdistribution:distribute "${RUNNER_TEMP}"/export/*.ipa \
+            --app "$FIREBASE_APP_ID" \
+            --groups "$GROUPS_INPUT" \
+            --release-notes "$NOTES"
+
+      - name: Cleanup signing artifacts
+        if: always()
+        run: |
+          security delete-keychain "${KEYCHAIN_PATH:-$RUNNER_TEMP/distribute.keychain-db}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/cert.p12" "${RUNNER_TEMP}/profile.mobileprovision" "${RUNNER_TEMP}/profile.plist" "${RUNNER_TEMP}/firebase-sa.json"
+          rm -f "$HOME"/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision || true
