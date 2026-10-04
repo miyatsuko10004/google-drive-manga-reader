@@ -141,6 +141,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          PROFILE_NAME_XML="${PROFILE_NAME//&/\&amp;}"
+          PROFILE_NAME_XML="${PROFILE_NAME_XML//</\&lt;}"
+          PROFILE_NAME_XML="${PROFILE_NAME_XML//>/\&gt;}"
           cat > "${RUNNER_TEMP}/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -157,7 +160,7 @@ jobs:
               <key>provisioningProfiles</key>
               <dict>
                   <key>${BUNDLE_ID}</key>
-                  <string>${PROFILE_NAME}</string>
+                  <string>${PROFILE_NAME_XML}</string>
               </dict>
               <key>compileBitcode</key>
               <false/>
