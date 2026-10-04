@@ -87,3 +87,8 @@ GoogleService-Info.plist
 
 Secrets.xcconfig
 .serena/
+.codex/
+.agent/
+__pycache__/
+.worktrees/
+.kiro/team-log.jsonl
