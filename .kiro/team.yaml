@@ -1,0 +1,26 @@
+# .kiro/team.yaml — リポジトリごとのチーム構成。モデルはここでのみ指定する。
+team: google-drive-manga-reader            # agmsg チーム名 = リポジトリ名 (小文字)
+roles:
+  leader:
+    cli: claude-code
+    model: sonnet            # 仕様・設計フェーズのみ opus に昇格
+    escalate: opus
+  coder:
+    cli: codex
+    model: gpt-6-luna
+    effort: high             # spawn_options.yaml で設定
+    escalate: {model: gpt-6-sol, effort: high}
+    fallback: {cli: claude-code, model: sonnet}   # 利用枠切れ時: team.sh up --use-fallback coder
+  reviewer:
+    cli: antigravity         # herdr の agent kind は agy
+    model: gemini-3.8-flash-high
+    escalate: gemini-3.1-pro-high
+# test:                          # 設定すると wt.sh merge が統合後に実行し、失敗なら統合を取り消す (未設定ならテストなしで統合)
+#   command: "python3 -m unittest discover -s tests"
+parallel:
+  max_coders: 2              # 並列 coder の上限 (coder-a, coder-b ...)。worktree は .worktrees/ 配下
+ops:
+  mode: subagent             # subagent | pane | direct
+  model: haiku
+  needs_approval: [push, pr-create, issue-create, delete-branch]
+approval_required_models: [gpt-6-astra]   # 使う場合は人間の承認が必要
