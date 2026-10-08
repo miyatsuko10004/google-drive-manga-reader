@@ -369,9 +369,15 @@ final class LibraryViewModel {
         var seriesGroups: [String: [LocalComic]] = [:]
         if !targetSeriesTitles.isEmpty {
             for comic in allComics {
-                let title = extractSeriesTitle(from: comic.title)
-                if targetSeriesTitles.contains(title) {
-                    seriesGroups[title, default: []].append(comic)
+                // パフォーマンス最適化: Regexを使用するextractSeriesTitleは非常に重いため（O(N)でUIスレッドをブロックする）、
+                // 先に高速な部分文字列判定(O(N))で候補を絞る。extractSeriesTitleは文字列の末尾や先頭を削るだけなので、
+                // 対象のシリーズタイトルは必ず元のコミックタイトルに含まれているはず。
+                let mightMatch = targetSeriesTitles.contains { comic.title.contains($0) }
+                if mightMatch {
+                    let title = extractSeriesTitle(from: comic.title)
+                    if targetSeriesTitles.contains(title) {
+                        seriesGroups[title, default: []].append(comic)
+                    }
                 }
             }
         }
