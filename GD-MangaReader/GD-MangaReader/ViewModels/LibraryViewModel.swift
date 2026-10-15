@@ -369,9 +369,15 @@ final class LibraryViewModel {
         var seriesGroups: [String: [LocalComic]] = [:]
         if !targetSeriesTitles.isEmpty {
             for comic in allComics {
-                let title = extractSeriesTitle(from: comic.title)
-                if targetSeriesTitles.contains(title) {
-                    seriesGroups[title, default: []].append(comic)
+                // ⚡ Bolt Optimization:
+                // Pre-filter with fast string `contains` before running expensive NSRegularExpression extraction.
+                // Reduces O(N) main-thread regex operations down to O(K) where K is roughly the match count.
+                let mightMatch = targetSeriesTitles.contains { target in comic.title.contains(target) }
+                if mightMatch {
+                    let title = extractSeriesTitle(from: comic.title)
+                    if targetSeriesTitles.contains(title) {
+                        seriesGroups[title, default: []].append(comic)
+                    }
                 }
             }
         }
